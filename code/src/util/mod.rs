@@ -32,7 +32,7 @@ pub fn read_model(file_path: &str) -> Vec<Vertex>{
 
                         let _texture = texture.unwrap_or([0.0, 0.0]);
                         let _normal = normal.unwrap_or([0.0, 0.0, 0.0]);
-                        
+                        println!("Normal is {:#?}", _normal);
                         vertex_data.push(Vertex{
                             position:position,
                             normal: _normal,

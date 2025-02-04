@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate glium;
 extern crate winit;
+use object::WorldObject;
 use rand::distr::{Distribution, Uniform};
 use glam::{Mat4, Vec3};
 use util::{input_handler::{InputHandler}, ray_library::ndc_to_intersection};
@@ -10,6 +11,7 @@ use world::{hex::Hex, layout::{HexLayout, Point, EVEN}, offset_coords::{qoffset_
 use std::{time::{Instant}};
 
 mod teapot;
+mod object;
 mod rendering;
 use rendering::{render::{array_to_vbo, Vertex}, render_camera::RenderCamera, text::{format_to_exact_length, RenderedText, TextVbo}};
 
@@ -79,40 +81,66 @@ fn main() {
     
     let mut world_camera = WorldCamera::new((NUM_ROWS, NUM_COLMS));
     
+
+    let mut cube_object: WorldObject = WorldObject::new();
     let tea_positions = vec![
-        Vertex{position: [-1.0, -1.0, 0.5], normal: [0.0,0.0,0.0], tex_coords: [0.0, 0.0]}, 
-        Vertex{position: [1.0, -1.0, 0.5], normal: [0.0,0.0,0.0], tex_coords: [1.0, 0.0]},
-        Vertex{position: [-1.0, 1.0, 0.5], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]},
-        Vertex{position: [1.0, 1.0, 0.5], normal: [0.0,0.0,0.0], tex_coords: [1.0, 1.0]},
-        Vertex{position: [-1.0, -1.0, -0.5], normal: [0.0,0.0,0.0], tex_coords: [0.0, 0.0]}, 
-        Vertex{position: [1.0, -1.0, -0.5], normal: [0.0,0.0,0.0], tex_coords: [1.0, 0.0]},
-        Vertex{position: [-1.0, 1.0, -0.5], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]},
-        Vertex{position: [1.0, 1.0, -0.5], normal: [0.0,0.0,0.0], tex_coords: [1.0, 1.0]},
+        // FRONT
+        Vertex { position: [0.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], tex_coords: [0.0, 0.0] },  // [00]
+        Vertex { position: [0.0, 1.0, 0.0], normal: [0.0, 0.0, 1.0], tex_coords: [0.0, 0.0] },  // [01]
+        Vertex { position: [1.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], tex_coords: [0.0, 0.0] },  // [02]
+        Vertex { position: [1.0, 1.0, 0.0], normal: [0.0, 0.0, 1.0], tex_coords: [0.0, 0.0] },  // [03]
+    
+        // BACK
+        Vertex { position: [0.0, 0.0, 1.0], normal: [0.0, 0.0, -1.0], tex_coords: [0.0, 0.0] }, // [04]
+        Vertex { position: [0.0, 1.0, 1.0], normal: [0.0, 0.0, -1.0], tex_coords: [0.0, 0.0] }, // [05]
+        Vertex { position: [1.0, 0.0, 1.0], normal: [0.0, 0.0, -1.0], tex_coords: [0.0, 0.0] }, // [06]
+        Vertex { position: [1.0, 1.0, 1.0], normal: [0.0, 0.0, -1.0], tex_coords: [0.0, 0.0] }, // [07]
+    
+        // LEFT
+        Vertex { position: [0.0, 0.0, 1.0], normal: [-1.0, 0.0, 0.0], tex_coords: [0.0, 0.0] }, // [08]
+        Vertex { position: [0.0, 1.0, 1.0], normal: [-1.0, 0.0, 0.0], tex_coords: [0.0, 0.0] }, // [09]
+        Vertex { position: [0.0, 0.0, 0.0], normal: [-1.0, 0.0, 0.0], tex_coords: [0.0, 0.0] }, // [10]
+        Vertex { position: [0.0, 1.0, 0.0], normal: [-1.0, 0.0, 0.0], tex_coords: [0.0, 0.0] }, // [11]
+    
+        // RIGHT
+        Vertex { position: [1.0, 0.0, 1.0], normal: [1.0, 0.0, 0.0], tex_coords: [0.0, 0.0] },  // [12]
+        Vertex { position: [1.0, 1.0, 1.0], normal: [1.0, 0.0, 0.0], tex_coords: [0.0, 0.0] },  // [13]
+        Vertex { position: [1.0, 0.0, 0.0], normal: [1.0, 0.0, 0.0], tex_coords: [0.0, 0.0] },  // [14]
+        Vertex { position: [1.0, 1.0, 0.0], normal: [1.0, 0.0, 0.0], tex_coords: [0.0, 0.0] },  // [15]
+    
+        // TOP
+        Vertex { position: [0.0, 1.0, 0.0], normal: [0.0, 1.0, 0.0], tex_coords: [0.0, 0.0] },  // [16]
+        Vertex { position: [0.0, 1.0, 1.0], normal: [0.0, 1.0, 0.0], tex_coords: [0.0, 0.0] },  // [17]
+        Vertex { position: [1.0, 1.0, 0.0], normal: [0.0, 1.0, 0.0], tex_coords: [0.0, 0.0] },  // [18]
+        Vertex { position: [1.0, 1.0, 1.0], normal: [0.0, 1.0, 0.0], tex_coords: [0.0, 0.0] },  // [19]
+    
+        // BOTTOM
+        Vertex { position: [0.0, 0.0, 0.0], normal: [0.0, -1.0, 0.0], tex_coords: [0.0, 0.0] }, // [20]
+        Vertex { position: [0.0, 0.0, 1.0], normal: [0.0, -1.0, 0.0], tex_coords: [0.0, 0.0] }, // [21]
+        Vertex { position: [1.0, 0.0, 0.0], normal: [0.0, -1.0, 0.0], tex_coords: [0.0, 0.0] }, // [22]
+        Vertex { position: [1.0, 0.0, 1.0], normal: [0.0, -1.0, 0.0], tex_coords: [0.0, 0.0] }, // [23]
     ];
     
-    let tea_indices = vec![        //Top
-    2, 6, 7,
-    2, 3, 7,
-
-    //Bottom
-    0, 4, 5,
-    0, 1, 5,
-
-    //Left
-    0, 2, 6,
-    0, 4, 6,
-
-    //Right
-    1, 3, 7,
-    1, 5, 7,
-
-    //Front
-    0, 2, 3,
-    0, 1, 3,
-
-    //Back
-    4, 6, 7,
-    4, 5, 7];
+    
+    let tea_indices = vec![
+        // FRONT
+        0, 3, 2, 1, 3, 0,
+    
+        // BACK
+        6, 7, 4, 4, 7, 5,
+    
+        // LEFT
+        8, 11, 10, 9, 11, 8,
+    
+        // RIGHT
+        14, 15, 12, 12, 15, 13,
+    
+        // TOP
+        16, 19, 18, 17, 19, 16,
+    
+        // BOTTOM
+        22, 23, 20, 20, 23, 21,
+    ];
 
 
     let obj_vert = util::read_shader("./shaders/vert2.glsl");
@@ -125,6 +153,8 @@ fn main() {
     let text_frag_shader  = util::read_shader("./shaders/text_frag.glsl");
 
     // Setup specific parameters
+
+    let light = [-1.4, 1.4, 0.7f32];
 
     let line_params = glium::DrawParameters {
         depth: glium::Depth {
@@ -261,16 +291,28 @@ fn main() {
                     camera.camera_matrix = camera.look_at(camera.get_pos()+camera.get_front());
                     //inverse_mat = Mat4::inverse(&(Mat4::from_cols_array_2d(&camera.perspective)*camera.camera_matrix*Mat4::IDENTITY));
                 }else if event.physical_key == keyboard::KeyCode::KeyU && event.state.is_pressed(){
-                    world_camera.move_camera(0, 1);
+                    cube_object.translate(Vec3::from_array([0.0,1.0,0.0]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyH && event.state.is_pressed(){
-                    world_camera.move_camera(2, 0);
+                    cube_object.translate(Vec3::from_array([-1.0,0.0,0.0]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyJ && event.state.is_pressed(){
-                    world_camera.move_camera(0, -1);
+                    cube_object.translate(Vec3::from_array([0.0,-1.0,0.0]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyK && event.state.is_pressed(){
-                    world_camera.move_camera(-2, 0);
+                    cube_object.translate(Vec3::from_array([1.0,0.0,0.0]));
+                }
+                else if event.physical_key == keyboard::KeyCode::KeyY && event.state.is_pressed(){
+                    cube_object.scale(Vec3::from_array([2.0,2.0,2.0]));
+                }
+                else if event.physical_key == keyboard::KeyCode::KeyI && event.state.is_pressed(){
+                    cube_object.scale(Vec3::from_array([0.5,0.5,0.5]));
+                }
+                else if event.physical_key == keyboard::KeyCode::KeyO && event.state.is_pressed(){
+                    cube_object.rotate(Vec3::from_array([1.0,0.0,1.0]).normalize(), 2.0943951);
+                }
+                else if event.physical_key == keyboard::KeyCode::KeyL && event.state.is_pressed(){
+                    cube_object.rotate(Vec3::from_array([1.0,0.0,1.0]).normalize(), 4.1887902);
                 }
                 //Handle WASD
 
@@ -351,7 +393,7 @@ fn main() {
                 //    float animation_step = mod(tex_offsets.x+1.0*tex_offsets.z*time,animation_length);
                 
                 target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
-                target.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
+                target.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: cube_object.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
                 target.draw(&ui_renderer.vbo, &ui_renderer.indicies, &ui_renderer.program, &uniform! {tex:&font_atlas}, &Default::default()).unwrap();
                 target.draw((&text_renderer.vbo, text_vbo.vbo.per_instance().unwrap()), &text_renderer.indicies, &text_renderer.program, &uniform! {tex:glium::uniforms::Sampler(&font_atlas, text_behavior)}, &text_renderer.draw_params).unwrap();
                 
