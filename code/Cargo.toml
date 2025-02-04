@@ -1,0 +1,15 @@
+[package]
+name = "FORX4D"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = { version = "0.9.0-alpha.2" }
+glium = "0.34.0"
+winit = "0.29.15"
+image = "0.25.1"
+glam = "0.28.0"
+rayon = "1.10.0"
+obj = { version = "0.10.2", features = ["genmesh"] }
