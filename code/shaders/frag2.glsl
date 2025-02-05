@@ -1,6 +1,5 @@
 #version 330 core
 
-in vec3 colPos; 
 in vec3 v_normal;
 in vec3 v_position;
 
@@ -8,9 +7,10 @@ uniform vec3 u_light;
 
 out vec4 color;
 
-const vec3 ambient_color = vec3(0.5, 0.3, 0.0);
-const vec3 diffuse_color = vec3(0.6, 0.0, 0.6);
+const vec3 ambient_color = vec3(0.2, 0.0, 0.0);
+const vec3 diffuse_color = vec3(0.6, 0.0, 0.0);
 const vec3 specular_color = vec3(1.0, 1.0, 1.0);
+
 
 
 void main() {

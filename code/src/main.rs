@@ -1,9 +1,9 @@
 #[macro_use]
 extern crate glium;
 extern crate winit;
-use object::WorldObject;
+use object::{point::WorldPoint, WorldObject};
 use rand::distr::{Distribution, Uniform};
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use util::{input_handler::{InputHandler}, ray_library::ndc_to_intersection};
 use winit::{event_loop::{ControlFlow, EventLoop}, keyboard, window::{Fullscreen, Window}};
 use glium::{glutin::surface::WindowSurface, implement_vertex, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Display, Surface, VertexBuffer};
@@ -142,9 +142,19 @@ fn main() {
         22, 23, 20, 20, 23, 21,
     ];
 
+    let quad_vertex = vec![
+        Vertex{position: [0.5, -0.5, 0.0], normal: [0.0,0.0,0.0], tex_coords: [1.0, 0.0]}, 
+        Vertex{position: [0.5, 0.5, 0.0], normal: [0.0,0.0,0.0], tex_coords: [1.0, 1.0]},
+        Vertex{position: [-0.5, 0.5, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]},
+        Vertex{position: [-0.5, -0.5, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 0.0]}
+    ]; 
+
 
     let obj_vert = util::read_shader("./shaders/vert2.glsl");
     let obj_frag = util::read_shader("./shaders/frag2.glsl");
+
+    let point_vert = util::read_shader("./shaders/point_vert.glsl");
+    let point_frag = util::read_shader("./shaders/point_frag.glsl");
 
     let line_vert_shader = util::read_shader("./shaders/line_vert.glsl");
     let line_frag_shader = util::read_shader("./shaders/line_frag.glsl");
@@ -154,7 +164,7 @@ fn main() {
 
     // Setup specific parameters
 
-    let light = [-1.4, 1.4, 0.7f32];
+    let light = [-1.0, 0.4, 0.9f32];
 
     let line_params = glium::DrawParameters {
         depth: glium::Depth {
@@ -168,6 +178,11 @@ fn main() {
     };
 
     let text_params = glium::DrawParameters {
+        blend: glium::Blend::alpha_blending(),
+        .. Default::default()
+    };
+
+    let point_params = glium::DrawParameters {
         blend: glium::Blend::alpha_blending(),
         .. Default::default()
     };
@@ -187,7 +202,7 @@ fn main() {
     let font_image = glium::texture::RawImage2d::from_raw_rgba_reversed(&font_raw_image.into_raw(), font_dimensions);
     let font_atlas = glium::texture::Texture2d::new(&display, font_image).unwrap();
 
-    
+    let point = WorldPoint::new(0.5,Vec2::ZERO,Vec3::ZERO);
 
     //Shape of quad
     let quad_shape:Vec<Vertex> = vec![
@@ -203,7 +218,9 @@ fn main() {
     let mut line_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::LinesList), &line_vert_shader, &line_frag_shader, None, &display, Some(line_params)).unwrap();
     let ui_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::TrianglesList), &line_vert_shader, &line_frag_shader, None, &display, None).unwrap();
     let text_renderer = rendering::render::Renderer::new(&quad_shape, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &text_vert_shader, &text_frag_shader, None, &display, Some(text_params)).unwrap();
-    
+    let point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &point_vert, &point_frag, None, &display, Some(point_params)).unwrap();
+
+
     line_renderer.draw_line((-1.0,-1.0), (1.0,1.0), None);
     let mut fps_text = RenderedText::new(String::from("00000fps"));
     let mut text_vbo = TextVbo::new(100, &display);
@@ -393,7 +410,11 @@ fn main() {
                 //    float animation_step = mod(tex_offsets.x+1.0*tex_offsets.z*time,animation_length);
                 
                 target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
+                target.draw(&point_renderer.vbo, &point_renderer.indicies, &point_renderer.program, &uniform!{radius: point.get_radius(), model: point.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &point_renderer.draw_params).unwrap();
+                
                 target.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: cube_object.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
+                
+                
                 target.draw(&ui_renderer.vbo, &ui_renderer.indicies, &ui_renderer.program, &uniform! {tex:&font_atlas}, &Default::default()).unwrap();
                 target.draw((&text_renderer.vbo, text_vbo.vbo.per_instance().unwrap()), &text_renderer.indicies, &text_renderer.program, &uniform! {tex:glium::uniforms::Sampler(&font_atlas, text_behavior)}, &text_renderer.draw_params).unwrap();
                 

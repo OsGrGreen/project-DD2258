@@ -1,4 +1,5 @@
 use glam::{Mat4, Vec3};
+pub mod point;
 
 #[derive(Copy, Clone,Debug)]
 pub struct WorldObject{
@@ -13,6 +14,13 @@ impl WorldObject{
             scaling: Mat4::IDENTITY,
             rotation: Mat4::IDENTITY,
             translation: Mat4::IDENTITY,
+        }
+    }
+    pub fn new_from_pos(initial_pos: Vec3) -> WorldObject{
+        WorldObject{
+            scaling: Mat4::IDENTITY,
+            rotation: Mat4::IDENTITY,
+            translation: Mat4::from_translation(initial_pos),
         }
     }
 
