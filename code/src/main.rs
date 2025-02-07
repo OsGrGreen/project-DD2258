@@ -329,7 +329,7 @@ fn main() {
                     cube_object.rotate(Vec3::from_array([1.0,0.0,1.0]).normalize(), 2.0943951);
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyL && event.state.is_pressed(){
-                    cube_object.rotate(Vec3::from_array([1.0,0.0,1.0]).normalize(), 4.1887902);
+                    cube_object.rotate(Vec3::from_array([1.0,1.0,0.0]).normalize(), 0.785398163);
                 }
                 //Handle WASD
 

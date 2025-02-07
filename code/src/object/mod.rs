@@ -39,6 +39,10 @@ impl WorldObject{
         self.translation *= translation_matrix;
     }
 
+    pub fn set_translation(&mut self, target: Vec3){
+        self.translation = Mat4::from_translation(target);
+    }
+
     pub fn get_model(self) -> Mat4{
         return self.translation*self.scaling*self.rotation
     }
