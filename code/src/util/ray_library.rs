@@ -2,6 +2,28 @@ use glam::{Mat4, Vec2, Vec3, Vec4, Vec4Swizzles};
 use winit::dpi::PhysicalSize;
 
 
+pub fn distance_ray_point(ray_origin: Vec3, ray_direction: Vec3, point: Vec3) -> f32{
+    let point_to_origin = point - ray_origin;
+    let cross_product = ray_direction.cross(point_to_origin);
+    cross_product.length()
+}
+
+pub fn ndc_to_direction(
+    mouse_ndc: &Vec3, 
+    camera_matrix: &Mat4, 
+    perspective_mat: &Mat4
+) -> Vec3 {
+    let eyespace = Mat4::inverse(perspective_mat);
+    let eye_space_vector = Vec4::new(mouse_ndc.x, mouse_ndc.y, -1.0, 1.0);
+
+    let mut eye_vector = eyespace * eye_space_vector;
+    eye_vector.z = -1.0;
+    eye_vector.w = 0.0;
+
+    let worldspace = Mat4::inverse(camera_matrix);
+    let world_vector: Vec4 = worldspace * eye_vector;
+    world_vector.xyz().normalize()
+}
 
 pub fn world_to_pixel(
     world_point: Vec3, 

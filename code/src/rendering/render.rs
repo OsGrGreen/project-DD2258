@@ -14,9 +14,10 @@ use super::{text::RenderedText};
 
 #[derive(Copy, Clone,Debug)]
 pub struct VertexSimple {
-    pub position: [f32; 2],
+    pub w_position: [f32; 3],
 }
-implement_vertex!(VertexSimple, position);
+implement_vertex!(VertexSimple, w_position);
+
 
 #[derive(Copy, Clone,Debug)]
 pub struct Vertex {
@@ -44,7 +45,7 @@ pub struct Renderer<'b>
         // Texture
 }
 
-impl <'b>Renderer<'b>{
+impl <'b>Renderer<'b>{    
         pub fn new<'a>(shape: &Vec<Vertex>, inds: &Vec<u16>, prim_type: Option<glium::index::PrimitiveType> ,vert_shader: &'a str, frag_shader: &'a str, geo_shader: Option<&'a str>, tess_ctrl: Option<&'a str>, tess_eval: Option<&'a str>, disp: &Display<WindowSurface>, params: Option<DrawParameters<'b>>) -> Result<Renderer<'b>, &'a str>{
             let shape_len = shape.len();
 

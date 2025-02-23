@@ -4,18 +4,18 @@ extern crate winit;
 use object::{point::WorldPoint, WorldObject};
 use rand::distr::{Distribution, Uniform};
 use glam::{Mat4, Vec2, Vec3};
-use util::{input_handler::InputHandler, ray_library::{ndc_to_intersection, ndc_to_point, world_to_pixel}};
-use winit::{event_loop::{ControlFlow, EventLoop}, keyboard, raw_window_handle::HasWindowHandle, window::{Fullscreen, Window}};
+use util::{input_handler::InputHandler, ray_library::{distance_ray_point, ndc_to_direction, ndc_to_intersection, ndc_to_point, world_to_pixel}};
+use winit::{event::{MouseButton, MouseScrollDelta}, event_loop::{ControlFlow, EventLoop}, keyboard, raw_window_handle::HasWindowHandle, window::{Fullscreen, Window}};
 use glium::{glutin::surface::WindowSurface, implement_vertex, index::PrimitiveType, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Display, Surface, VertexBuffer};
 use world::{hex::Hex, layout::{HexLayout, Point, EVEN}, offset_coords::{qoffset_from_cube_offsets, qoffset_to_cube, qoffset_to_cube_offsets}, tile::Tile, world_camera::WorldCamera, OffsetTile, NUM_COLMS, NUM_ROWS};
-use std::{time::{Instant}};
+use std::{io::stdout, time::Instant};
 
 
 mod object;
 mod rendering;
 mod bezier_surface;
 use bezier_surface::{create_surface};
-use rendering::{render::{array_to_vbo, Vertex}, render_camera::RenderCamera, text::{format_to_exact_length, RenderedText, TextVbo}};
+use rendering::{render::{array_to_vbo, Vertex, VertexSimple}, render_camera::RenderCamera, text::{format_to_exact_length, RenderedText, TextVbo}};
 
 
 mod util;
@@ -145,10 +145,10 @@ fn main() {
     ];
 
     let quad_vertex = vec![
-        Vertex{position: [0.5, -0.5, 0.0], normal: [0.0,0.0,0.0], tex_coords: [1.0, 0.0]}, 
-        Vertex{position: [0.5, 0.5, 0.0], normal: [0.0,0.0,0.0], tex_coords: [1.0, 1.0]},
-        Vertex{position: [-0.5, 0.5, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]},
-        Vertex{position: [-0.5, -0.5, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 0.0]}
+        Vertex{position: [0.1, -0.1, 0.0], normal: [0.1,0.1,0.0], tex_coords: [1.0, 0.0]}, 
+        Vertex{position: [0.1, 0.1, 0.0], normal: [0.1,0.1,0.0], tex_coords: [1.0, 1.0]},
+        Vertex{position: [-0.1, 0.1, 0.0], normal: [0.1,0.1,0.0], tex_coords: [0.0, 1.0]},
+        Vertex{position: [-0.1, -0.1, 0.0], normal: [0.1,0.1,0.0], tex_coords: [0.0, 0.0]}
     ]; 
 
 
@@ -157,6 +157,8 @@ fn main() {
 
     let point_vert = util::read_shader(include_bytes!(r"../shaders/point_vert.glsl"));
     let point_frag = util::read_shader(include_bytes!(r"../shaders/point_frag.glsl"));
+    let mult_point_vert = util::read_shader(include_bytes!(r"../shaders/bezier_points/vert.glsl"));
+    let mult_point_frag = util::read_shader(include_bytes!(r"../shaders/bezier_points/frag.glsl"));
 
     let line_vert_shader = util::read_shader(include_bytes!(r"../shaders/line_vert.glsl"));
     let line_frag_shader = util::read_shader(include_bytes!(r"../shaders/line_frag.glsl"));
@@ -168,6 +170,7 @@ fn main() {
     let surface_frag_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/frag.glsl"));
     let surface_tess_ctrl_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/tess_ctrl.glsl"));
     let surface_tess_eval_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/tess_eval.glsl"));
+    
     // Setup specific parameters
 
     let light = [-1.0, 0.4, 0.9f32];
@@ -183,12 +186,26 @@ fn main() {
         .. Default::default()
     };
 
+    let surface_params = glium::DrawParameters {
+        depth: glium::Depth {
+            test: glium::DepthTest::IfLess,
+            write: true,
+            .. Default::default()
+        },
+        .. Default::default()
+    };
+
     let text_params = glium::DrawParameters {
         blend: glium::Blend::alpha_blending(),
         .. Default::default()
     };
 
     let point_params = glium::DrawParameters {
+        blend: glium::Blend::alpha_blending(),
+        .. Default::default()
+    };
+
+    let mult_point_params = glium::DrawParameters {
         blend: glium::Blend::alpha_blending(),
         .. Default::default()
     };
@@ -225,31 +242,50 @@ fn main() {
     let ui_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::TrianglesList), &line_vert_shader, &line_frag_shader, None, &display, None).unwrap();
     let text_renderer = rendering::render::Renderer::new(&quad_shape, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &text_vert_shader, &text_frag_shader, None, None, None, &display, Some(text_params)).unwrap();
     let point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &point_vert, &point_frag, None, None, None, &display, Some(point_params)).unwrap();
+    let mult_point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &mult_point_vert, &mult_point_frag, None, None, None, &display, Some(mult_point_params)).unwrap();
+    let mut selected_point: i32 = -1;
 
 
-    let surface_points = vec![
-        // Row 0 (u=0)
-        Vertex { position: [-1.0, -1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]}, // c00
-        Vertex { position: [-0.33, -1.0, 3.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]}, // c01
-        Vertex { position: [0.33, -1.0, 1.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },  // c02
-        Vertex { position: [1.0, -1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },   // c03
-        // Row 1 (u=0.33)
-        Vertex { position: [-1.0, -0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] }, // c10
-        Vertex { position: [-0.33, -0.33, -2.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] }, // c11
-        Vertex { position: [0.33, -0.33, 2.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },  // c12
-        Vertex { position: [1.0, -0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },   // c13
-        // Row 2 (u=0.66)
-        Vertex { position: [-1.0, 0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },  // c20
-        Vertex { position: [-0.33, 0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] }, // c21
-        Vertex { position: [0.33, 0.33, 1.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },   // c22
-        Vertex { position: [1.0, 0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },    // c23
-        // Row 3 (u=1.0)
-        Vertex { position: [-1.0, 1.0, -1.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },   // c30
-        Vertex { position: [-0.33, 1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },  // c31
-        Vertex { position: [0.33, 1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },    // c32
-        Vertex { position: [1.0, 1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },     // c33
+    let mut surface_points = vec![
+        // Row 0 
+        VertexSimple { w_position: [-1.0, -1.0, 0.0]}, // c00
+        VertexSimple { w_position: [-0.33, -1.0, 3.0]}, // c01
+        VertexSimple { w_position: [0.33, -1.0, 1.0]},  // c02
+        VertexSimple { w_position: [1.0, -1.0, 0.0]},   // c03
+        // Row 1 
+        VertexSimple { w_position: [-1.0, -0.33, 0.0]}, // c10
+        VertexSimple { w_position: [-0.33, -0.33, 3.0]}, // c11
+        VertexSimple { w_position: [0.33, -0.33, 2.0]},  // c12
+        VertexSimple { w_position: [1.0, -0.33, 0.0]},   // c13
+        // Row 2
+        VertexSimple { w_position: [-4.0, 0.33, -1.0]},  // c20
+        VertexSimple { w_position: [-0.33, 0.33, 0.0]}, // c21
+        VertexSimple { w_position: [0.33, 0.33, 1.0]},   // c22
+        VertexSimple { w_position: [1.0, 0.33, 0.0]},    // c23
+        // Row 3
+        VertexSimple { w_position: [-1.0, 1.0, -1.0]},   // c30
+        VertexSimple { w_position: [-0.33, 3.0, 0.0]},  // c31
+        VertexSimple { w_position: [0.33, 1.0, 0.0]},    // c32
+        VertexSimple { w_position: [1.0, 1.0, 0.0]},     // c33
+
+        // Row 1 
+        VertexSimple { w_position: [-1.0+6.0, -0.33, 0.0]}, // c10
+        VertexSimple { w_position: [-0.33+6.0, -0.33, 3.0]}, // c11
+        VertexSimple { w_position: [0.33+6.0, -0.33, 2.0]},  // c12
+        VertexSimple { w_position: [1.0+6.0, -0.33, 0.0]},   // c13
+        // Row w_position
+        VertexSimple { w_position: [-4.0+6.0, 0.33, -1.0]},  // c20
+        VertexSimple { w_position: [-0.33+6.0, 0.33, 0.0]}, // c21
+        VertexSimple { w_position: [0.33+6.0, 0.33, 1.0]},   // c22
+        VertexSimple { w_position: [1.0+6.0, 0.33, 0.0]},    // c23
+        // Row w_position
+        VertexSimple { w_position: [-1.0+6.0, 1.0, -1.0]},   // c30
+        VertexSimple { w_position: [-0.33+6.0, 3.0, 0.0]},  // c31
+        VertexSimple { w_position: [0.33+6.0, 1.0, 0.0]},    // c32
+        VertexSimple { w_position: [1.0+6.0, 1.0, 0.0]},     // c33
     ];
-    let surface_renderer = rendering::render::Renderer::new(&surface_points, &vec![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, None).unwrap();
+    let mut surface_vbo = glium::VertexBuffer::new(&display, &surface_points).unwrap();
+    let surface_renderer = rendering::render::Renderer::new(&vec![], &vec![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,15,11,7,3,16,17,18,19,20,21,22,23,24,25,26,27], Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, Some(surface_params)).unwrap();
 
     line_renderer.draw_line((-1.0,-1.0), (1.0,1.0), None);
     let mut fps_text = RenderedText::new(String::from("00000fps"));
@@ -277,9 +313,9 @@ fn main() {
 
     let mut current_time = Instant::now();
     let mut accumulator: f32 = 0.0;
-
+    let mut ctrl_pressed = false;
     let mut total_fps: usize = 0;
-
+    let mut prev_mouse_pos = Vec3::ZERO;
     let mut timer = Instant::now();
     let mut overall_fps = 0.0;
     let smoothing = 0.6; // larger=more smoothing
@@ -291,22 +327,63 @@ fn main() {
                 window_target.exit()
             },
             winit::event::WindowEvent::CursorMoved { device_id: _, position } => {
-                
-
-                let camera_ndc = world_to_pixel(camera.get_pos(), &camera.camera_matrix, window.inner_size(),&camera.perspective);
-                println!("Camera pos ndc is: {:#?}", camera_ndc);
-
+                prev_mouse_pos = mouse_pos;
                 mouse_pos = Vec3::new(
                     (position.x as f32 / window.inner_size().width as f32) * 2.0 - 1.0,
                     - ((position.y as f32 / window.inner_size().height as f32) * 2.0 - 1.0),
                     1.0,
                 );
 
-                println!("mouse_pos ndc is: {:#?}", mouse_pos);
+                if ctrl_pressed && selected_point != -1{
+                    //Change to update this each frame instead...
+                    //Make the mouse wheel also simpler...
+                    let dist = (mouse_pos-prev_mouse_pos).normalize();
+                    println!("Dist is {:#?}", dist);
+                    surface_points[selected_point as usize].w_position[0] += dist.x;
+                    surface_points[selected_point as usize].w_position[1] += dist.y;
+
+                    //Onödigt att göra om hela ig. Men i dunno är just nu bara 16 punkter...
+                    surface_vbo = glium::VertexBuffer::new(&display, &surface_points).unwrap();
+                }else{
+                    //let camera_ndc = world_to_pixel(camera.get_pos(), &camera.camera_matrix, window.inner_size(),&camera.perspective);
+                    //println!("Camera pos ndc is: {:#?}", camera_ndc);
+    
+
+                }
                 
             }
-            winit::event::WindowEvent::MouseInput { device_id: _, state, button } =>{
+            winit::event::WindowEvent::MouseWheel { device_id: _, delta, phase } =>{
+                if selected_point != -1 && ctrl_pressed{
+                    match delta {
+                        MouseScrollDelta::LineDelta(x, y) => {
+                            surface_points[selected_point as usize].w_position[2] += y;
 
+                            //Onödigt att göra om hela ig. Men i dunno är just nu bara 16 punkter...
+                            surface_vbo = glium::VertexBuffer::new(&display, &surface_points).unwrap();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            winit::event::WindowEvent::MouseInput { device_id: _, state, button } =>{
+                //Change to update this each frame instead...
+                //Make the mouse wheel also simpler...
+                if state.is_pressed() && button == MouseButton::Left{
+                    let mouse_dir = ndc_to_direction(&mouse_pos, &camera.camera_matrix, &camera.perspective);
+                    let mouse_point = camera.get_pos();
+                    let mut i  = -1;
+                    let mut min_dist = 100.0;
+                    let mut min_ind = -1;
+                    for point in surface_points.iter(){
+                        i += 1;
+                        let dist = distance_ray_point(mouse_point,mouse_dir,Vec3::from_array(point.w_position));
+                        if min_dist>dist{
+                            min_dist = dist;
+                            min_ind = i;
+                        } 
+                    }
+                    selected_point = min_ind;
+                }
             }
 
             // TODO
@@ -353,6 +430,11 @@ fn main() {
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyL && event.state.is_pressed(){
                     cube_object.rotate(Vec3::from_array([1.0,1.0,0.0]).normalize(), 0.785398163);
+                }else if event.state.is_pressed() && event.physical_key == keyboard::KeyCode::ControlLeft{
+                    ctrl_pressed = true;
+                }else if !event.state.is_pressed() && event.physical_key == keyboard::KeyCode::ControlLeft{
+                    ctrl_pressed = false;
+                    selected_point = -1;
                 }
                 //Handle WASD
 
@@ -431,15 +513,17 @@ fn main() {
                 //println!("Pos is: {}", un_modded_pos);
                 //    float animation_step = mod(tex_offsets.x+1.0*tex_offsets.z*time,animation_length);
                 
-                target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
+
+                target.draw(&surface_vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &surface_renderer.draw_params).unwrap();
+
+                //target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
                 target.draw(&point_renderer.vbo, &point_renderer.indicies, &point_renderer.program, &uniform!{radius: point.get_radius(), model: point.get_model().get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &point_renderer.draw_params).unwrap();
-                
+                target.draw((&mult_point_renderer.vbo, surface_vbo.per_instance().unwrap()), &mult_point_renderer.indicies, &mult_point_renderer.program, &uniform! {selected: selected_point, model: (0.1*Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &mult_point_renderer.draw_params).unwrap();
                 //println!("Buffer is: {:#?}", &surface_renderer.vbo);
 
 
                 //target.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: cube_object.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
                 
-                target.draw(&surface_renderer.vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
 
                 
                 target.draw(&ui_renderer.vbo, &ui_renderer.indicies, &ui_renderer.program, &uniform! {tex:&font_atlas}, &Default::default()).unwrap();
