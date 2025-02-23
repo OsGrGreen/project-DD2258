@@ -4,15 +4,17 @@ extern crate winit;
 use object::{point::WorldPoint, WorldObject};
 use rand::distr::{Distribution, Uniform};
 use glam::{Mat4, Vec2, Vec3};
-use util::{input_handler::{InputHandler}, ray_library::ndc_to_intersection};
-use winit::{event_loop::{ControlFlow, EventLoop}, keyboard, window::{Fullscreen, Window}};
-use glium::{glutin::surface::WindowSurface, implement_vertex, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Display, Surface, VertexBuffer};
+use util::{input_handler::InputHandler, ray_library::{ndc_to_intersection, ndc_to_point, world_to_pixel}};
+use winit::{event_loop::{ControlFlow, EventLoop}, keyboard, raw_window_handle::HasWindowHandle, window::{Fullscreen, Window}};
+use glium::{glutin::surface::WindowSurface, implement_vertex, index::PrimitiveType, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Display, Surface, VertexBuffer};
 use world::{hex::Hex, layout::{HexLayout, Point, EVEN}, offset_coords::{qoffset_from_cube_offsets, qoffset_to_cube, qoffset_to_cube_offsets}, tile::Tile, world_camera::WorldCamera, OffsetTile, NUM_COLMS, NUM_ROWS};
 use std::{time::{Instant}};
 
-mod teapot;
+
 mod object;
 mod rendering;
+mod bezier_surface;
+use bezier_surface::{create_surface};
 use rendering::{render::{array_to_vbo, Vertex}, render_camera::RenderCamera, text::{format_to_exact_length, RenderedText, TextVbo}};
 
 
@@ -150,18 +152,22 @@ fn main() {
     ]; 
 
 
-    let obj_vert = util::read_shader("./shaders/vert2.glsl");
-    let obj_frag = util::read_shader("./shaders/frag2.glsl");
+    let obj_vert = util::read_shader(include_bytes!(r"../shaders/vert2.glsl"));
+    let obj_frag = util::read_shader(include_bytes!(r"../shaders/frag2.glsl"));
 
-    let point_vert = util::read_shader("./shaders/point_vert.glsl");
-    let point_frag = util::read_shader("./shaders/point_frag.glsl");
+    let point_vert = util::read_shader(include_bytes!(r"../shaders/point_vert.glsl"));
+    let point_frag = util::read_shader(include_bytes!(r"../shaders/point_frag.glsl"));
 
-    let line_vert_shader = util::read_shader("./shaders/line_vert.glsl");
-    let line_frag_shader = util::read_shader("./shaders/line_frag.glsl");
+    let line_vert_shader = util::read_shader(include_bytes!(r"../shaders/line_vert.glsl"));
+    let line_frag_shader = util::read_shader(include_bytes!(r"../shaders/line_frag.glsl"));
 
-    let text_vert_shader  = util::read_shader("./shaders/text_vert.glsl");
-    let text_frag_shader  = util::read_shader("./shaders/text_frag.glsl");
+    let text_vert_shader  = util::read_shader(include_bytes!(r"../shaders/text_vert.glsl"));
+    let text_frag_shader  = util::read_shader(include_bytes!(r"../shaders/text_frag.glsl"));
 
+    let surface_vert_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/vert.glsl"));
+    let surface_frag_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/frag.glsl"));
+    let surface_tess_ctrl_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/tess_ctrl.glsl"));
+    let surface_tess_eval_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/tess_eval.glsl"));
     // Setup specific parameters
 
     let light = [-1.0, 0.4, 0.9f32];
@@ -202,7 +208,7 @@ fn main() {
     let font_image = glium::texture::RawImage2d::from_raw_rgba_reversed(&font_raw_image.into_raw(), font_dimensions);
     let font_atlas = glium::texture::Texture2d::new(&display, font_image).unwrap();
 
-    let point = WorldPoint::new(0.5,Vec2::ZERO,Vec3::ZERO);
+    let mut point = WorldPoint::new(0.5,Vec2::ZERO,Vec3::ZERO);
 
     //Shape of quad
     let quad_shape:Vec<Vertex> = vec![
@@ -214,12 +220,36 @@ fn main() {
     
     let quad_indicies = vec![0, 2, 1, 0, 2, 3];
 
-    let obj_renderer = rendering::render::Renderer::new(&tea_positions, &tea_indices, Some(glium::index::PrimitiveType::TrianglesList), &obj_vert, &obj_frag, None, &display, None).unwrap();
+    let obj_renderer = rendering::render::Renderer::new(&tea_positions, &tea_indices, Some(glium::index::PrimitiveType::TrianglesList), &obj_vert, &obj_frag, None, None, None, &display, None).unwrap();
     let mut line_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::LinesList), &line_vert_shader, &line_frag_shader, None, &display, Some(line_params)).unwrap();
     let ui_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::TrianglesList), &line_vert_shader, &line_frag_shader, None, &display, None).unwrap();
-    let text_renderer = rendering::render::Renderer::new(&quad_shape, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &text_vert_shader, &text_frag_shader, None, &display, Some(text_params)).unwrap();
-    let point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &point_vert, &point_frag, None, &display, Some(point_params)).unwrap();
+    let text_renderer = rendering::render::Renderer::new(&quad_shape, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &text_vert_shader, &text_frag_shader, None, None, None, &display, Some(text_params)).unwrap();
+    let point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &point_vert, &point_frag, None, None, None, &display, Some(point_params)).unwrap();
 
+
+    let surface_points = vec![
+        // Row 0 (u=0)
+        Vertex { position: [-1.0, -1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]}, // c00
+        Vertex { position: [-0.33, -1.0, 3.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]}, // c01
+        Vertex { position: [0.33, -1.0, 1.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },  // c02
+        Vertex { position: [1.0, -1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },   // c03
+        // Row 1 (u=0.33)
+        Vertex { position: [-1.0, -0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] }, // c10
+        Vertex { position: [-0.33, -0.33, -2.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] }, // c11
+        Vertex { position: [0.33, -0.33, 2.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },  // c12
+        Vertex { position: [1.0, -0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },   // c13
+        // Row 2 (u=0.66)
+        Vertex { position: [-1.0, 0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },  // c20
+        Vertex { position: [-0.33, 0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] }, // c21
+        Vertex { position: [0.33, 0.33, 1.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },   // c22
+        Vertex { position: [1.0, 0.33, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },    // c23
+        // Row 3 (u=1.0)
+        Vertex { position: [-1.0, 1.0, -1.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },   // c30
+        Vertex { position: [-0.33, 1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },  // c31
+        Vertex { position: [0.33, 1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },    // c32
+        Vertex { position: [1.0, 1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0] },     // c33
+    ];
+    let surface_renderer = rendering::render::Renderer::new(&surface_points, &vec![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, None).unwrap();
 
     line_renderer.draw_line((-1.0,-1.0), (1.0,1.0), None);
     let mut fps_text = RenderedText::new(String::from("00000fps"));
@@ -239,8 +269,8 @@ fn main() {
     let mut frames:f32 = 0.0;
 
 
-    let mut mouse_pos: Point = Point{x:0.0,y:0.0};
-    let mut mouse_ndc: Vec3 = Vec3::ZERO;
+    //let mut mouse_pos: Point = Point{x:0.0,y:0.0};
+    let mut mouse_pos: Vec3 = Vec3::ZERO;
 
     let mut t: f32 = 0.0;
     let dt: f32 = 0.0167;
@@ -263,30 +293,20 @@ fn main() {
             winit::event::WindowEvent::CursorMoved { device_id: _, position } => {
                 
 
-                // Still some problem with this code?
-                // Could probably be some rounding errors...
-                // How could one fix this?
-                // Scale everything maybe to use bigger numbers?
-                mouse_ndc = Vec3::new(
+                let camera_ndc = world_to_pixel(camera.get_pos(), &camera.camera_matrix, window.inner_size(),&camera.perspective);
+                println!("Camera pos ndc is: {:#?}", camera_ndc);
+
+                mouse_pos = Vec3::new(
                     (position.x as f32 / window.inner_size().width as f32) * 2.0 - 1.0,
-                    -((position.y as f32 / window.inner_size().height as f32) * 2.0 - 1.0),
-                    0.0,
+                    - ((position.y as f32 / window.inner_size().height as f32) * 2.0 - 1.0),
+                    1.0,
                 );
 
-                let intersect = ndc_to_intersection(&mouse_ndc,&camera.camera_matrix,camera.get_pos(),&camera.perspective);
-
-
-                mouse_pos.x = intersect.x as f32;
-                mouse_pos.y = intersect.y as f32;
+                println!("mouse_pos ndc is: {:#?}", mouse_pos);
+                
             }
             winit::event::WindowEvent::MouseInput { device_id: _, state, button } =>{
-                if state.is_pressed(){
 
-                    //get_clicked_pos(&mut mouse_pos, &mut world_camera);
-
-                }else{
-
-                }
             }
 
             // TODO
@@ -300,11 +320,14 @@ fn main() {
                 } 
                 else if event.physical_key == keyboard::KeyCode::KeyQ && event.state.is_pressed(){
                     camera.r#move(-CAMERA_SPEED*camera.get_front());
+                    point.get_mut_model().translate(-CAMERA_SPEED*camera.get_front());
                     camera.camera_matrix = camera.look_at(camera.get_pos()+camera.get_front());
                     //inverse_mat = Mat4::inverse(&(Mat4::from_cols_array_2d(&camera.perspective)*camera.camera_matrix*Mat4::IDENTITY));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyE{
                     camera.r#move(CAMERA_SPEED*camera.get_front());
+                    point.get_mut_model().translate(CAMERA_SPEED*camera.get_front());
+
                     camera.camera_matrix = camera.look_at(camera.get_pos()+camera.get_front());
                     //inverse_mat = Mat4::inverse(&(Mat4::from_cols_array_2d(&camera.perspective)*camera.camera_matrix*Mat4::IDENTITY));
                 }else if event.physical_key == keyboard::KeyCode::KeyU && event.state.is_pressed(){
@@ -346,7 +369,6 @@ fn main() {
             },
             winit::event::WindowEvent::RedrawRequested => {
                 //Physics step
-                
                 let new_time = Instant::now();
                 let mut frame_time = current_time.elapsed().as_secs_f32() - new_time.elapsed().as_secs_f32();
 
@@ -364,7 +386,7 @@ fn main() {
                     //println!("Clicked Unit has ID:{:?}", entity_handler.get_selected_unit());
                     let time_update = Instant::now();
 
-                    update_game_logic(dt, &mut camera, &mut world_camera, &input_handler, mouse_ndc, &mut mouse_pos); 
+                    update_game_logic(dt, &mut camera, &mut world_camera, &input_handler, &mut mouse_pos, &mut point, &window); 
                     //println!("Update game: {} ms", time_update.elapsed().as_millis());
                     t += dt;
                     accumulator -= dt;
@@ -410,10 +432,15 @@ fn main() {
                 //    float animation_step = mod(tex_offsets.x+1.0*tex_offsets.z*time,animation_length);
                 
                 target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
-                target.draw(&point_renderer.vbo, &point_renderer.indicies, &point_renderer.program, &uniform!{radius: point.get_radius(), model: point.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &point_renderer.draw_params).unwrap();
+                target.draw(&point_renderer.vbo, &point_renderer.indicies, &point_renderer.program, &uniform!{radius: point.get_radius(), model: point.get_model().get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &point_renderer.draw_params).unwrap();
                 
-                target.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: cube_object.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
+                //println!("Buffer is: {:#?}", &surface_renderer.vbo);
+
+
+                //target.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: cube_object.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
                 
+                target.draw(&surface_renderer.vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
+
                 
                 target.draw(&ui_renderer.vbo, &ui_renderer.indicies, &ui_renderer.program, &uniform! {tex:&font_atlas}, &Default::default()).unwrap();
                 target.draw((&text_renderer.vbo, text_vbo.vbo.per_instance().unwrap()), &text_renderer.indicies, &text_renderer.program, &uniform! {tex:glium::uniforms::Sampler(&font_atlas, text_behavior)}, &text_renderer.draw_params).unwrap();
@@ -447,56 +474,45 @@ fn main() {
 }
 
 
-fn update_game_logic(delta_time: f32, camera: &mut RenderCamera,world_camera: &mut WorldCamera,input_handler: &InputHandler,mouse_ndc:Vec3, mouse_pos: &mut Point){
+fn update_game_logic(delta_time: f32, camera: &mut RenderCamera,world_camera: &mut WorldCamera,input_handler: &InputHandler,mut mouse_pos:&mut Vec3, mouse_point: &mut WorldPoint, window: &Window){
     //Update movement (Kanske göra efter allt annat... possibly):
     let mut movement = input_handler.get_movement();
     if movement.length() > 0.0{
-        let mut traveresed_whole_hex = false;
         movement = movement.normalize();
         //Flytta en i taget...
+        // Make this be calculated once instead of twice...
+        
+        //I should make the camera more robust... To have pitch and yaw and whatever...
+
+        //Up borde ju också ändra sig right?
+        let front = -(camera.get_pos() - mouse_point.get_model().get_posistion()).normalize();
+
         camera.r#move(delta_time*movement[1]*CAMERA_SPEED*camera.get_up());
+
         let y_pos = camera.get_pos()[1];
-        camera.r#move(delta_time*movement[0]*CAMERA_SPEED*(camera.get_front().cross(camera.get_up())).normalize());
-            let x_pos = camera.get_pos()[0];
+
+        camera.r#move(delta_time*movement[0]*CAMERA_SPEED*(front.cross(camera.get_up())).normalize());
+
+        let x_pos = camera.get_pos()[0];
                 //Kom på varför det är 0.12 här och inget annat nummer...
                 //Verkar ju bara bero på hex_size och inte scale....
-            let intersect = ndc_to_intersection(&mouse_ndc,&camera.camera_matrix,camera.get_pos(),&camera.perspective);
-            mouse_pos.x = intersect.x as f32;
-            mouse_pos.y = intersect.y as f32;
-            camera.camera_matrix = camera.look_at(camera.get_pos()+camera.get_front());
-                //inverse_mat = Mat4::inverse(&(Mat4::from_cols_array_2d(&perspective)*camera_matrix*Mat4::IDENTITY));
-        }
+        //Now convert world space traveled to screen space traveled...
+
+    }
+    //println!("Mouse NDC is: {:#?}", current_ndc);
+    
+    // I have to modify the z-axis right, since if I rotate it will not always intersect with z = 0.0. I want it to intersect with a point 5 units in front of the camera..
+    
+    // I now only want to make the NDC control the amount...
+    let intersect = ndc_to_point(&(Vec3::new(-mouse_pos.x,-mouse_pos.y,0.0)),&camera.camera_matrix,camera.get_pos(),&camera.perspective, 5.0);
+    mouse_point.get_mut_model().set_translation(intersect);
+    //Rotate point to face camera:
+
+    camera.change_target(intersect);
+    camera.camera_matrix = camera.look_at(intersect+camera.get_front());
+
 }
 
-pub fn get_clicked_pos(layout: &HexLayout, mouse_pos: &mut Point, world_camera: &mut WorldCamera) -> OffsetTile{
-    //println!("Dimension is: {:#?}", window.inner_size());
-    let frac_hex = layout.pixel_to_hex(&mouse_pos);
-    let clicked_hex = frac_hex.hex_round();
-    
-    let (mut clicked_y, mut clicked_x) = qoffset_from_cube_offsets(EVEN,&clicked_hex);                    
-    //Make these not hard coded...
-    // And move out into seperate function
-    clicked_y = 25 - clicked_y as isize;
-    clicked_x = 12 - clicked_x as isize;
+pub fn get_clicked_pos(mouse_pos: &mut Point, world_camera: &mut WorldCamera){
 
-    let camera_offsets = world_camera.offsets();
-
-    //Make these then loop when crossing over the boundary.
-    clicked_x += camera_offsets.1; 
-    clicked_y += camera_offsets.0;
-
-    if clicked_x <= 0{
-        clicked_x = ((NUM_COLMS) as isize + clicked_x) % NUM_COLMS as isize;
-    }else if clicked_x >= NUM_COLMS as isize{
-        clicked_x = (clicked_x - (NUM_COLMS) as isize) % NUM_COLMS as isize;
-    }  
-    
-
-    if clicked_y <= 0{
-        clicked_y = ((NUM_ROWS) as isize + clicked_y) % NUM_ROWS as isize;
-    }else if clicked_y >= NUM_ROWS as isize{
-        clicked_y = (clicked_y - (NUM_ROWS) as isize) % NUM_ROWS as isize;
-    }  
-
-    return OffsetTile::new(clicked_y as u32, clicked_x as u32)
 }

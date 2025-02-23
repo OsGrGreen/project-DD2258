@@ -30,6 +30,7 @@ pub struct Renderer<'b>
     {
         // What to be rendered (Verts)
         // Make these be able to render any Vertex type again since saving normal and tex_coords for line is kina overkill...
+        // pub vbo: VertexBuffer<T>
         pub vbo: VertexBuffer<Vertex>,
         // How to be rendered (Indicies) (Kan behöva öka från u16 till u32)
         pub indicies: glium::IndexBuffer<u16>,
@@ -44,12 +45,19 @@ pub struct Renderer<'b>
 }
 
 impl <'b>Renderer<'b>{
-        pub fn new<'a>(shape: &Vec<Vertex>, inds: &Vec<u16>, prim_type: Option<glium::index::PrimitiveType> ,vert_shader: &'a str, frag_shader: &'a str, geo_shader: Option<&'a str>, disp: &Display<WindowSurface>, params: Option<DrawParameters<'b>>) -> Result<Renderer<'b>, &'a str>{
+        pub fn new<'a>(shape: &Vec<Vertex>, inds: &Vec<u16>, prim_type: Option<glium::index::PrimitiveType> ,vert_shader: &'a str, frag_shader: &'a str, geo_shader: Option<&'a str>, tess_ctrl: Option<&'a str>, tess_eval: Option<&'a str>, disp: &Display<WindowSurface>, params: Option<DrawParameters<'b>>) -> Result<Renderer<'b>, &'a str>{
             let shape_len = shape.len();
 
             let vbo = glium::VertexBuffer::new(disp, &shape).unwrap();
+            let program = glium::Program::new(disp, glium::program::SourceCode{
+                vertex_shader: vert_shader,
+                fragment_shader: frag_shader,
+                geometry_shader: geo_shader,
+                tessellation_control_shader: tess_ctrl,
+                tessellation_evaluation_shader: tess_eval,
+            }).unwrap();
 
-            let program = glium::Program::from_source(disp, vert_shader, frag_shader, geo_shader).unwrap();
+            
 
             if inds.len() < 1{
                 //println!("Found no indecies");

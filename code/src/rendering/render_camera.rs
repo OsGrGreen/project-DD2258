@@ -4,6 +4,7 @@ use glam::{Mat4, Vec3, Vec4};
 
 pub struct RenderCamera{
     camera_pos: Vec3,
+    camera_prev_pos: Vec3,
     camera_target: Vec3,
     camera_up: Vec3,
     camera_front: Vec3,
@@ -17,11 +18,18 @@ impl RenderCamera{
 
     pub fn new(start_pos: Vec3, target:Vec3, up:Vec3, front:Vec3) -> RenderCamera{
 
-        RenderCamera{camera_pos:start_pos, camera_target:target,camera_up:up, camera_front:front, perspective:Mat4::ZERO, camera_matrix: Mat4::ZERO}
+        RenderCamera{camera_pos:start_pos, camera_prev_pos:start_pos,camera_target:target,camera_up:up, camera_front:front, perspective:Mat4::ZERO, camera_matrix: Mat4::ZERO}
     }
 
     pub fn get_pos(&self) -> Vec3{
         return self.camera_pos
+    }
+
+    pub fn get_movement_delta(&mut self) -> Vec3{
+        let delta = self.camera_prev_pos - self.camera_pos;
+        self.camera_prev_pos = self.camera_pos;
+        
+        return delta
     }
 
     pub fn get_up(&self) -> Vec3{
@@ -31,6 +39,11 @@ impl RenderCamera{
     pub fn get_front(&self) -> Vec3{
         return self.camera_front
     }
+
+    pub fn set_front(&mut self, new_front:Vec3){
+        self.camera_front = new_front;
+    }
+
 
     pub fn r#set_x(&mut self, x:f32){
         self.camera_pos[0] = x;

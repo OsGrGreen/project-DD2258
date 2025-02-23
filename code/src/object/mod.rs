@@ -43,6 +43,12 @@ impl WorldObject{
         self.translation = Mat4::from_translation(target);
     }
 
+    pub fn get_posistion(&self) -> Vec3{
+        let translation = self.translation.col(3);
+        Vec3::new(translation.x, translation.y,translation.z)
+    }
+
+
     pub fn get_model(self) -> Mat4{
         return self.translation*self.scaling*self.rotation
     }

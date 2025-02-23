@@ -1,16 +1,18 @@
-use std::fs;
+use std::{fs, str};
 use std::fs::File;
 use crate::rendering::render::Vertex;
 
 pub mod input_handler;
 pub mod ray_library;
 
-pub fn read_shader(file_path: &str) -> String{
+pub fn read_shader(buf: &[u8]) -> &str{
 
-    let contents = fs::read_to_string(file_path)
-        .expect("Was not able to read shader");
+    let s = match str::from_utf8(buf) {
+        Ok(v) => v,
+        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+    };
 
-    return contents
+    return s;
 }
 
 pub fn read_model(file_path: &str) -> Vec<Vertex>{
