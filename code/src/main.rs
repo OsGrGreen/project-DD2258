@@ -245,15 +245,6 @@ fn main() {
         .. Default::default()
     };
 
-    let mut grass_pos:Vec<VertexSimple> = vec![];
-    let num_grass = 25;
-    let mut rng = rand::rng();
-    for i in -num_grass..num_grass{
-        for j in -num_grass..num_grass{
-            grass_pos.push(VertexSimple{w_position: [i as f32*0.35+rng.random_range(-0.3..0.4), 0.0, j as f32*0.35+rng.random_range(-0.4..0.3)]});
-        }
-    }
-    let grass_instances = glium::VertexBuffer::new(&display, &grass_pos).unwrap();
     //Read textures
         //Tile textures
     //let tile_texture_atlas_image = image::load(std::io::Cursor::new(&include_bytes!(r"textures\texture_atlas_tiles.png")),image::ImageFormat::Png).unwrap().to_rgba8();
@@ -354,6 +345,10 @@ fn main() {
         glium::program::TransformFeedbackMode::Interleaved,
     ))).unwrap();
     
+    let now = Instant::now();
+    let mut grass_pos:Vec<VertexSimple> = bezier_surface.get_grass_posistions(16);
+    let grass_instances = glium::VertexBuffer::new(&display, &grass_pos).unwrap();
+    println!("Updating {} grass pos took: {:.2?}", grass_pos.len(), now.elapsed());
 
     line_renderer.draw_line((-1.0,-1.0), (1.0,1.0), None);
     let mut fps_text = RenderedText::new(String::from("00000fps"));
@@ -607,7 +602,7 @@ fn main() {
                 //println!("Have created buffers");
                 fbo.draw(&surface_vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {object_color: [0.3 as f32,0.8 as f32,0.0 as f32], u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &surface_params).unwrap();
                 //println!("Have drawn surface");
-                //target.draw((&grass_renderer.vbo, grass_instances.per_instance().unwrap()), &grass_renderer.indicies, &grass_renderer.program, &uniform! {u_light: light, threshhold: 0.5 as f32, strength: 0.08 as f32,u_time: t, tex: &grass_texture, u_light: light, model: (Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &grass_renderer.draw_params).unwrap();
+                fbo.draw((&grass_renderer.vbo, grass_instances.per_instance().unwrap()), &grass_renderer.indicies, &grass_renderer.program, &uniform! {u_light: light, threshhold: 0.5 as f32, strength: 0.08 as f32,u_time: t, tex: &grass_texture, u_light: light, model: (Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &grass_renderer.draw_params).unwrap();
                 //target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
                 fbo.draw((&mult_point_renderer.vbo, surface_vbo.per_instance().unwrap()), &mult_point_renderer.indicies, &mult_point_renderer.program, &uniform! {selected: selected_point, model: (0.1*Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &mult_point_renderer.draw_params).unwrap();
                 //println!("Buffer is: {:#?}", &surface_renderer.vbo);
@@ -654,19 +649,19 @@ fn update_obj_physics(delta_time: f32, surface: &mut bezier_surface::Surface, ob
     let mut force: Vec3 = gravity;
     let (surface_pos, dX,dZ) = surface.evaluate(obj.get_posistion()).unwrap_or((Vec3::new(0.0, -5.0, 0.0), Vec3::ZERO, Vec3::ZERO));
     let dist = obj.get_posistion().y-surface_pos.y;
-    println!("Surface pos is {}", surface_pos);
-    println!("dX is {}", dX);
-    println!("dz is {}", dZ);
+    //println!("Surface pos is {}", surface_pos);
+    //println!("dX is {}", dX);
+    //println!("dz is {}", dZ);
     //println!("Distance to ground is: {}", dist);
     let r  = 0.025*10.0;
     if 0.0+eps+r > dist {
         obj.set_translation(Vec3::new(obj.get_posistion().x,surface_pos.y+r,obj.get_posistion().z));
         let normal = dX.cross(dZ).normalize();
-        println!("\nNormal is {}", normal);
-        println!("Normal dot down: {}", normal.dot(gravity));
+        //println!("\nNormal is {}", normal);
+        //println!("Normal dot down: {}", normal.dot(gravity));
         let mut down_direction = gravity.cross(normal);
         down_direction.x = down_direction.x*normal.dot(gravity);
-        println!("Down is: {}", down_direction);
+        //println!("Down is: {}", down_direction);
         force += down_direction;
     }
     obj.translate( force*delta_time);

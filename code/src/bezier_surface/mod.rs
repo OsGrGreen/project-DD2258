@@ -33,6 +33,61 @@ impl Surface{
         }
     }
 
+    pub fn get_grass_posistions(&self, grass_per_dim_quad: usize) -> Vec<VertexSimple>{
+        let mut samples = Vec::new();
+        // Total vertices per row in the full grid.
+        let total_vertices_x = self.num_quads_x * 3 + 1;
+        
+        // Loop through each quad in the grid.
+        for quad_z in 0..self.num_quads_z {
+            for quad_x in 0..self.num_quads_x {
+                // For each quad, compute its starting grid coordinates.
+                let start_x = quad_x * 3;
+                let start_z = quad_z * 3;
+                
+                // Extract the 16 control points (4×4 block) for the current quad.
+                let mut quad_vertices = Vec::with_capacity(16);
+                for i in 0..4 {
+                    for j in 0..4 {
+                        let index = (start_z + i) * total_vertices_x + (start_x + j);
+                        quad_vertices.push(Vec3::from_array(self.points[index].w_position));
+                    }
+                }
+                
+                // Now, sample the quad. u and v vary between 0.0 and 1.0.
+                // If there is only one sample, use 0.0; otherwise, space them evenly.
+                for v_idx in 0..grass_per_dim_quad {
+                    let v = if grass_per_dim_quad > 1 {
+                        v_idx as f32 / (grass_per_dim_quad - 1) as f32
+                    } else {
+                        0.0
+                    };
+                    for u_idx in 0..grass_per_dim_quad {
+                        let u = if grass_per_dim_quad > 1 {
+                            u_idx as f32 / (grass_per_dim_quad - 1) as f32
+                        } else {
+                            0.0
+                        };
+
+                        let (bu, _) = Self::bernstain(u);
+                        let (bv, _) = Self::bernstain(v);
+                        
+                        let ev_pos:Vec3 =       quad_vertices[0]*bu[0]*bv[0] + quad_vertices[1]*bu[0]*bv[1] + quad_vertices[2]*bu[0]*bv[2] + quad_vertices[3]*bu[0]*bv[3] + 
+                                                quad_vertices[4]*bu[1]*bv[0] + quad_vertices[5]*bu[1]*bv[1] + quad_vertices[6]*bu[1]*bv[2] + quad_vertices[7]*bu[1]*bv[3] + 
+                                                quad_vertices[8]*bu[2]*bv[0] + quad_vertices[9]*bu[2]*bv[1] + quad_vertices[10]*bu[2]*bv[2] + quad_vertices[11]*bu[2]*bv[3] + 
+                                                quad_vertices[12]*bu[3]*bv[0] + quad_vertices[13]*bu[3]*bv[1] + quad_vertices[14]*bu[3]*bv[2] + quad_vertices[15]*bu[3]*bv[3];
+                        
+                        samples.push(VertexSimple {
+                            w_position: [ev_pos.x,ev_pos.y,ev_pos.z]
+                        });
+                    }
+                }
+            }
+        }
+        
+        samples
+    } 
+
 
     pub fn evaluate(&self, pos: Vec3) -> Option<(Vec3,Vec3,Vec3)>{
 
