@@ -6,7 +6,7 @@ use winit::window::Window; */
 
 
 use glam::Mat4;
-use glium::{glutin::surface::WindowSurface, uniforms::{AsUniformValue, Uniforms, UniformsStorage}, Display, DrawParameters, Frame, Program, Surface, VertexBuffer};
+use glium::{glutin::surface::WindowSurface, program::TransformFeedbackMode, uniforms::{AsUniformValue, Uniforms, UniformsStorage}, Display, DrawParameters, Frame, Program, Surface, VertexBuffer};
 
 use crate::world::layout::Point;
 
@@ -46,16 +46,19 @@ pub struct Renderer<'b>
 }
 
 impl <'b>Renderer<'b>{    
-        pub fn new<'a>(shape: &Vec<Vertex>, inds: &Vec<u16>, prim_type: Option<glium::index::PrimitiveType> ,vert_shader: &'a str, frag_shader: &'a str, geo_shader: Option<&'a str>, tess_ctrl: Option<&'a str>, tess_eval: Option<&'a str>, disp: &Display<WindowSurface>, params: Option<DrawParameters<'b>>) -> Result<Renderer<'b>, &'a str>{
+        pub fn new<'a>(shape: &Vec<Vertex>, inds: &Vec<u16>, prim_type: Option<glium::index::PrimitiveType> ,vert_shader: &'a str, frag_shader: &'a str, geo_shader: Option<&'a str>, tess_ctrl: Option<&'a str>, tess_eval: Option<&'a str>, disp: &Display<WindowSurface>, params: Option<DrawParameters<'b>>, transformFeedback:Option<(Vec<std::string::String>, TransformFeedbackMode)> ) -> Result<Renderer<'b>, &'a str>{
             let shape_len = shape.len();
 
             let vbo = glium::VertexBuffer::new(disp, &shape).unwrap();
-            let program = glium::Program::new(disp, glium::program::SourceCode{
+            let program = glium::Program::new(disp, glium::program::ProgramCreationInput::SourceCode{
                 vertex_shader: vert_shader,
                 fragment_shader: frag_shader,
                 geometry_shader: geo_shader,
                 tessellation_control_shader: tess_ctrl,
                 tessellation_evaluation_shader: tess_eval,
+                transform_feedback_varyings: transformFeedback,
+                outputs_srgb: true,
+                uses_point_size: false,
             }).unwrap();
 
             

@@ -1,17 +1,19 @@
 #[macro_use]
 extern crate glium;
 extern crate winit;
+use grass::get_grass_shape;
 use object::{point::WorldPoint, WorldObject};
-use rand::distr::{Distribution, Uniform};
+use rand::{distr::{Distribution, Uniform}, Rng};
 use glam::{Mat4, Vec2, Vec3};
 use util::{input_handler::InputHandler, ray_library::{distance_ray_point, ndc_to_direction, ndc_to_intersection, ndc_to_point, world_to_pixel}};
 use winit::{event::{MouseButton, MouseScrollDelta}, event_loop::{ControlFlow, EventLoop}, keyboard, raw_window_handle::HasWindowHandle, window::{Fullscreen, Window}};
-use glium::{glutin::surface::WindowSurface, implement_vertex, index::PrimitiveType, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Display, Surface, VertexBuffer};
+use glium::{backend::Facade, glutin::surface::WindowSurface, implement_vertex, index::PrimitiveType, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Blend, BlendingFunction, Display, LinearBlendingFactor, Surface, VertexBuffer};
 use world::{hex::Hex, layout::{HexLayout, Point, EVEN}, offset_coords::{qoffset_from_cube_offsets, qoffset_to_cube, qoffset_to_cube_offsets}, tile::Tile, world_camera::WorldCamera, OffsetTile, NUM_COLMS, NUM_ROWS};
 use std::{io::stdout, time::Instant};
 
 
 mod object;
+mod grass;
 mod rendering;
 mod bezier_surface;
 use bezier_surface::{create_surface};
@@ -61,7 +63,7 @@ fn main() {
     let mut camera = RenderCamera::new(Vec3::new(0.0,0.0,4.5), Vec3::new(0.0,0.0,0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::new(0.0,0.0,-1.0));
 
     // Input handler
-
+    
     let mut input_handler = InputHandler::new();
 
     camera.camera_matrix = camera.look_at(camera.get_pos()+camera.get_front());
@@ -170,7 +172,13 @@ fn main() {
     let surface_frag_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/frag.glsl"));
     let surface_tess_ctrl_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/tess_ctrl.glsl"));
     let surface_tess_eval_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/tess_eval.glsl"));
-    
+
+    let grass_vert = util::read_shader(include_bytes!(r"../shaders/grass/grass_vert.glsl"));
+    let grass_frag = util::read_shader(include_bytes!(r"../shaders/grass/grass_frag.glsl"));
+
+
+
+
     // Setup specific parameters
 
     let light = [-1.0, 0.4, 0.9f32];
@@ -210,6 +218,38 @@ fn main() {
         .. Default::default()
     };
 
+    let custom_blend = Blend {
+        color: BlendingFunction::Addition {
+            source: LinearBlendingFactor::SourceAlpha,
+            destination: LinearBlendingFactor::OneMinusSourceAlpha,
+        },
+        alpha: BlendingFunction::Addition {
+            source: LinearBlendingFactor::One,
+            destination: LinearBlendingFactor::One,
+        },
+        constant_value: (1.0, 1.0, 1.0, 1.0),
+    };
+    
+
+    let grass_params = glium::DrawParameters {
+        depth: glium::Depth {
+            test: glium::DepthTest::IfLess,
+            write: true,
+            .. Default::default()
+        },
+        blend: custom_blend,
+        .. Default::default()
+    };
+
+    let mut grass_pos:Vec<VertexSimple> = vec![];
+    let num_grass = 25;
+    let mut rng = rand::rng();
+    for i in -num_grass..num_grass{
+        for j in -num_grass..num_grass{
+            grass_pos.push(VertexSimple{w_position: [i as f32*0.35+rng.random_range(-0.3..0.4), 0.0, j as f32*0.35+rng.random_range(-0.4..0.3)]});
+        }
+    }
+    let grass_instances = glium::VertexBuffer::new(&display, &grass_pos).unwrap();
     //Read textures
         //Tile textures
     //let tile_texture_atlas_image = image::load(std::io::Cursor::new(&include_bytes!(r"textures\texture_atlas_tiles.png")),image::ImageFormat::Png).unwrap().to_rgba8();
@@ -225,6 +265,12 @@ fn main() {
     let font_image = glium::texture::RawImage2d::from_raw_rgba_reversed(&font_raw_image.into_raw(), font_dimensions);
     let font_atlas = glium::texture::Texture2d::new(&display, font_image).unwrap();
 
+    let grass_raw_image = image::load(std::io::Cursor::new(&include_bytes!(r"textures\grass.png")),
+    image::ImageFormat::Png).unwrap().to_rgba8();
+    let grass_dimensions = grass_raw_image.dimensions();
+    let grass_image = glium::texture::RawImage2d::from_raw_rgba_reversed(&grass_raw_image.into_raw(), grass_dimensions);
+    let grass_texture = glium::texture::Texture2d::new(&display, grass_image).unwrap();
+
     let mut point = WorldPoint::new(0.5,Vec2::ZERO,Vec3::ZERO);
 
     //Shape of quad
@@ -237,55 +283,57 @@ fn main() {
     
     let quad_indicies = vec![0, 2, 1, 0, 2, 3];
 
-    let obj_renderer = rendering::render::Renderer::new(&tea_positions, &tea_indices, Some(glium::index::PrimitiveType::TrianglesList), &obj_vert, &obj_frag, None, None, None, &display, None).unwrap();
+    let obj_renderer = rendering::render::Renderer::new(&tea_positions, &tea_indices, Some(glium::index::PrimitiveType::TrianglesList), &obj_vert, &obj_frag, None, None, None, &display, None, None).unwrap();
     let mut line_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::LinesList), &line_vert_shader, &line_frag_shader, None, &display, Some(line_params)).unwrap();
     let ui_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::TrianglesList), &line_vert_shader, &line_frag_shader, None, &display, None).unwrap();
-    let text_renderer = rendering::render::Renderer::new(&quad_shape, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &text_vert_shader, &text_frag_shader, None, None, None, &display, Some(text_params)).unwrap();
-    let point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &point_vert, &point_frag, None, None, None, &display, Some(point_params)).unwrap();
-    let mult_point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &mult_point_vert, &mult_point_frag, None, None, None, &display, Some(mult_point_params)).unwrap();
+    let text_renderer = rendering::render::Renderer::new(&quad_shape, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &text_vert_shader, &text_frag_shader, None, None, None, &display, Some(text_params), None).unwrap();
+    let point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &point_vert, &point_frag, None, None, None, &display, Some(point_params), None).unwrap();
+    let mult_point_renderer = rendering::render::Renderer::new(&quad_vertex, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &mult_point_vert, &mult_point_frag, None, None, None, &display, Some(mult_point_params), None).unwrap();
     let mut selected_point: i32 = -1;
-
+    let grass = get_grass_shape();
+    let grass_renderer = rendering::render::Renderer::new(&grass.0, &grass.1, Some(glium::index::PrimitiveType::TrianglesList), &grass_vert, &grass_frag, None, None, None, &display, Some(grass_params), None).unwrap();
 
     let mut surface_points = vec![
         // Row 0 
-        VertexSimple { w_position: [-1.0, -1.0, 0.0]}, // c00
-        VertexSimple { w_position: [-0.33, -1.0, 3.0]}, // c01
-        VertexSimple { w_position: [0.33, -1.0, 1.0]},  // c02
-        VertexSimple { w_position: [1.0, -1.0, 0.0]},   // c03
+        VertexSimple { w_position: [-1.0, 0.0, -1.0]}, // c00
+        VertexSimple { w_position: [-0.33, 3.0, -1.0]}, // c01
+        VertexSimple { w_position: [0.33, 1.0, -1.0]},  // c02
+        VertexSimple { w_position: [1.0, 0.0, -1.0]},   // c03
         // Row 1 
-        VertexSimple { w_position: [-1.0, -0.33, 0.0]}, // c10
-        VertexSimple { w_position: [-0.33, -0.33, 3.0]}, // c11
-        VertexSimple { w_position: [0.33, -0.33, 2.0]},  // c12
-        VertexSimple { w_position: [1.0, -0.33, 0.0]},   // c13
+        VertexSimple { w_position: [-1.0, 0.0, -0.33]}, // c10
+        VertexSimple { w_position: [-0.33, 3.0, -0.33]}, // c11
+        VertexSimple { w_position: [0.33, 2.0, -0.33]},  // c12
+        VertexSimple { w_position: [1.0, 0.0, -0.33]},   // c13
         // Row 2
-        VertexSimple { w_position: [-4.0, 0.33, -1.0]},  // c20
-        VertexSimple { w_position: [-0.33, 0.33, 0.0]}, // c21
-        VertexSimple { w_position: [0.33, 0.33, 1.0]},   // c22
-        VertexSimple { w_position: [1.0, 0.33, 0.0]},    // c23
+        VertexSimple { w_position: [-4.0, -1.0, 0.33]},  // c20
+        VertexSimple { w_position: [-0.33, 0.0, 0.33]}, // c21
+        VertexSimple { w_position: [0.33, 1.0, 0.33]},   // c22
+        VertexSimple { w_position: [1.0, 0.0, 0.33]},    // c23
         // Row 3
-        VertexSimple { w_position: [-1.0, 1.0, -1.0]},   // c30
-        VertexSimple { w_position: [-0.33, 3.0, 0.0]},  // c31
-        VertexSimple { w_position: [0.33, 1.0, 0.0]},    // c32
-        VertexSimple { w_position: [1.0, 1.0, 0.0]},     // c33
+        VertexSimple { w_position: [-1.0, -1.0, 1.0]},   // c30
+        VertexSimple { w_position: [-0.33, 0.0, 3.0]},  // c31
+        VertexSimple { w_position: [0.33, 0.0, 1.0]},    // c32
+        VertexSimple { w_position: [1.0, 0.0, 1.0]},     // c33
 
-        // Row 1 
-        VertexSimple { w_position: [-1.0+6.0, -0.33, 0.0]}, // c10
-        VertexSimple { w_position: [-0.33+6.0, -0.33, 3.0]}, // c11
-        VertexSimple { w_position: [0.33+6.0, -0.33, 2.0]},  // c12
-        VertexSimple { w_position: [1.0+6.0, -0.33, 0.0]},   // c13
-        // Row w_position
-        VertexSimple { w_position: [-4.0+6.0, 0.33, -1.0]},  // c20
-        VertexSimple { w_position: [-0.33+6.0, 0.33, 0.0]}, // c21
-        VertexSimple { w_position: [0.33+6.0, 0.33, 1.0]},   // c22
-        VertexSimple { w_position: [1.0+6.0, 0.33, 0.0]},    // c23
-        // Row w_position
-        VertexSimple { w_position: [-1.0+6.0, 1.0, -1.0]},   // c30
-        VertexSimple { w_position: [-0.33+6.0, 3.0, 0.0]},  // c31
-        VertexSimple { w_position: [0.33+6.0, 1.0, 0.0]},    // c32
-        VertexSimple { w_position: [1.0+6.0, 1.0, 0.0]},     // c33
+        // Row 1 quad 2
+        VertexSimple { w_position: [-1.0+6.0, 0.0, -0.33]}, // c10
+        VertexSimple { w_position: [-0.33+6.0, 3.0, -0.33]}, // c11
+        VertexSimple { w_position: [0.33+6.0, 2.0, -0.33]},  // c12
+        VertexSimple { w_position: [1.0+6.0, 0.0, -0.33]},   // c13
+        // Row 2
+        VertexSimple { w_position: [-4.0+6.0, -1.0, 0.33]},  // c20
+        VertexSimple { w_position: [-0.33+6.0, 0.0, 0.33]}, // c21
+        VertexSimple { w_position: [0.33+6.0, 1.0, 0.33]},   // c22
+        VertexSimple { w_position: [1.0+6.0, 0.0, 0.33]},    // c23
+        // Row 3
+        VertexSimple { w_position: [-1.0+6.0, -1.0, 1.0]},   // c30
+        VertexSimple { w_position: [-0.33+6.0, 0.0, 3.0]},  // c31
+        VertexSimple { w_position: [0.33+6.0, 0.0, 1.0]},    // c32
+        VertexSimple { w_position: [1.0+6.0, 0.0, 1.0]},     // c33
     ];
     let mut surface_vbo = glium::VertexBuffer::new(&display, &surface_points).unwrap();
-    let surface_renderer = rendering::render::Renderer::new(&vec![], &vec![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,15,11,7,3,16,17,18,19,20,21,22,23,24,25,26,27], Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, Some(surface_params)).unwrap();
+    //Pass this surface_vbo into a compute shader?
+    let surface_renderer = rendering::render::Renderer::new(&vec![], &vec![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,15,11,7,3,16,17,18,19,20,21,22,23,24,25,26,27], Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, Some(surface_params), None).unwrap();
 
     line_renderer.draw_line((-1.0,-1.0), (1.0,1.0), None);
     let mut fps_text = RenderedText::new(String::from("00000fps"));
@@ -514,11 +562,11 @@ fn main() {
                 //    float animation_step = mod(tex_offsets.x+1.0*tex_offsets.z*time,animation_length);
                 
 
-                target.draw(&surface_vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &surface_renderer.draw_params).unwrap();
-
+                //target.draw(&surface_vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &surface_renderer.draw_params).unwrap();
+                target.draw((&grass_renderer.vbo, grass_instances.per_instance().unwrap()), &grass_renderer.indicies, &grass_renderer.program, &uniform! {u_light: light, threshhold: 0.5 as f32, strength: 0.08 as f32,u_time: t, tex: &grass_texture, u_light: light, model: (Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &grass_renderer.draw_params).unwrap();
                 //target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
                 target.draw(&point_renderer.vbo, &point_renderer.indicies, &point_renderer.program, &uniform!{radius: point.get_radius(), model: point.get_model().get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &point_renderer.draw_params).unwrap();
-                target.draw((&mult_point_renderer.vbo, surface_vbo.per_instance().unwrap()), &mult_point_renderer.indicies, &mult_point_renderer.program, &uniform! {selected: selected_point, model: (0.1*Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &mult_point_renderer.draw_params).unwrap();
+                //target.draw((&mult_point_renderer.vbo, surface_vbo.per_instance().unwrap()), &mult_point_renderer.indicies, &mult_point_renderer.program, &uniform! {selected: selected_point, model: (0.1*Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &mult_point_renderer.draw_params).unwrap();
                 //println!("Buffer is: {:#?}", &surface_renderer.vbo);
 
 
