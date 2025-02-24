@@ -1,6 +1,15 @@
 use glam::Vec3;
+use rand::Rng;
 
 use crate::rendering::render::{Vertex, VertexSimple};
+
+#[derive(Copy, Clone,Debug)]
+pub struct GrassVertex {
+    pub g_position: [f32; 3],
+    pub g_normal: [f32; 3],
+}
+implement_vertex!(GrassVertex, g_position, g_normal);
+
 
 pub struct Surface{
     start_pos: Vec3,
@@ -33,11 +42,11 @@ impl Surface{
         }
     }
 
-    pub fn get_grass_posistions(&self, grass_per_dim_quad: usize) -> Vec<VertexSimple>{
+    pub fn get_grass_posistions(&self, grass_per_dim_quad: usize) -> Vec<GrassVertex>{
         let mut samples = Vec::new();
         // Total vertices per row in the full grid.
         let total_vertices_x = self.num_quads_x * 3 + 1;
-        
+        let mut rng = rand::rng();
         // Loop through each quad in the grid.
         for quad_z in 0..self.num_quads_z {
             for quad_x in 0..self.num_quads_x {
@@ -69,16 +78,15 @@ impl Surface{
                             0.0
                         };
 
-                        let (bu, _) = Self::bernstain(u);
-                        let (bv, _) = Self::bernstain(v);
+                        let (bu, du) = Self::bernstain(u);
+                        let (bv, dv) = Self::bernstain(v);
                         
-                        let ev_pos:Vec3 =       quad_vertices[0]*bu[0]*bv[0] + quad_vertices[1]*bu[0]*bv[1] + quad_vertices[2]*bu[0]*bv[2] + quad_vertices[3]*bu[0]*bv[3] + 
-                                                quad_vertices[4]*bu[1]*bv[0] + quad_vertices[5]*bu[1]*bv[1] + quad_vertices[6]*bu[1]*bv[2] + quad_vertices[7]*bu[1]*bv[3] + 
-                                                quad_vertices[8]*bu[2]*bv[0] + quad_vertices[9]*bu[2]*bv[1] + quad_vertices[10]*bu[2]*bv[2] + quad_vertices[11]*bu[2]*bv[3] + 
-                                                quad_vertices[12]*bu[3]*bv[0] + quad_vertices[13]*bu[3]*bv[1] + quad_vertices[14]*bu[3]*bv[2] + quad_vertices[15]*bu[3]*bv[3];
-                        
-                        samples.push(VertexSimple {
-                            w_position: [ev_pos.x,ev_pos.y,ev_pos.z]
+                        let (pos, du_vec, dv_vec) = Self::get(&quad_vertices,bu,du,bv,dv);
+
+
+                        samples.push(GrassVertex {
+                            g_position: (pos+Vec3::new(rng.random_range(-0.2..0.2), 0.0, rng.random_range(-0.2..0.2))).to_array(),
+                            g_normal: du_vec.cross(dv_vec).to_array(),
                         });
                     }
                 }
@@ -103,6 +111,11 @@ impl Surface{
         let (bu, dbu) = Self::bernstain(u);
         let (bv, dbv) = Self::bernstain(v);
         
+                      
+        return Some(Self::get(&points,bu,dbu,bv,dbv))
+    }
+
+    fn get(points: &Vec<Vec3>, bu: [f32;4], dbu: [f32;4], bv: [f32;4], dbv: [f32;4]) -> (Vec3,Vec3,Vec3){
         let ev_pos = points[0]*bu[0]*bv[0] + points[1]*bu[0]*bv[1] + points[2]*bu[0]*bv[2] + points[3]*bu[0]*bv[3] + 
                                 points[4]*bu[1]*bv[0] + points[5]*bu[1]*bv[1] + points[6]*bu[1]*bv[2] + points[7]*bu[1]*bv[3] + 
                                 points[8]*bu[2]*bv[0] + points[9]*bu[2]*bv[1] + points[10]*bu[2]*bv[2] + points[11]*bu[2]*bv[3] + 
@@ -116,8 +129,8 @@ impl Surface{
         let dPos_dv =         points[0]*bu[0]*dbv[0] + points[1]*bu[0]*dbv[1] + points[2]*bu[0]*dbv[2] + points[3]*bu[0]*dbv[3] + 
                                     points[4]*bu[1]*dbv[0] + points[5]*bu[1]*dbv[1] + points[6]*bu[1]*dbv[2] + points[7]*bu[1]*dbv[3] + 
                                     points[8]*bu[2]*dbv[0] + points[9]*bu[2]*dbv[1] + points[10]*bu[2]*dbv[2] + points[11]*bu[2]*dbv[3] + 
-                                    points[12]*bu[3]*dbv[0] + points[13]*bu[3]*dbv[1] + points[14]*bu[3]*dbv[2] + points[15]*bu[3]*dbv[3];                        
-        return Some((ev_pos, dPos_du, dPos_dv))
+                                    points[12]*bu[3]*dbv[0] + points[13]*bu[3]*dbv[1] + points[14]*bu[3]*dbv[2] + points[15]*bu[3]*dbv[3];  
+        return (ev_pos, dPos_du, dPos_dv)
     }
 
     fn get_points(&self, pos: Vec3)-> Option<(Vec<Vec3>, (f32,f32))>{

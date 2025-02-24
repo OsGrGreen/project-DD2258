@@ -16,7 +16,7 @@ mod object;
 mod grass;
 mod rendering;
 mod bezier_surface;
-use bezier_surface::{create_surface, create_surface_quad};
+use bezier_surface::{create_surface, create_surface_quad, GrassVertex};
 use rendering::{render::{self, array_to_vbo, Vertex, VertexSimple}, render_camera::RenderCamera, text::{format_to_exact_length, RenderedText, TextVbo}};
 
 
@@ -346,8 +346,8 @@ fn main() {
     ))).unwrap();
     
     let now = Instant::now();
-    let mut grass_pos:Vec<VertexSimple> = bezier_surface.get_grass_posistions(16);
-    let grass_instances = glium::VertexBuffer::new(&display, &grass_pos).unwrap();
+    let mut grass_pos:Vec<GrassVertex> = bezier_surface.get_grass_posistions(16);
+    let mut grass_instances = glium::VertexBuffer::new(&display, &grass_pos).unwrap();
     println!("Updating {} grass pos took: {:.2?}", grass_pos.len(), now.elapsed());
 
     line_renderer.draw_line((-1.0,-1.0), (1.0,1.0), None);
@@ -412,6 +412,7 @@ fn main() {
                     
 
                     //Onödigt att göra om hela ig. Men i dunno är just nu bara 16 punkter...
+                    grass_instances = glium::VertexBuffer::new(&display, &bezier_surface.get_grass_posistions(16)).unwrap();
                     surface_vbo = glium::VertexBuffer::new(&display, &bezier_surface.points).unwrap();
                 }else{
                     //let camera_ndc = world_to_pixel(camera.get_pos(), &camera.camera_matrix, window.inner_size(),&camera.perspective);
@@ -645,26 +646,38 @@ fn main() {
 }
 
 fn update_obj_physics(delta_time: f32, surface: &mut bezier_surface::Surface, obj:&mut WorldObject){
-    let gravity = Vec3::new(0.0, -1.0, 0.0);
-    let mut force: Vec3 = gravity;
-    let (surface_pos, dX,dZ) = surface.evaluate(obj.get_posistion()).unwrap_or((Vec3::new(0.0, -5.0, 0.0), Vec3::ZERO, Vec3::ZERO));
-    let dist = obj.get_posistion().y-surface_pos.y;
-    //println!("Surface pos is {}", surface_pos);
-    //println!("dX is {}", dX);
-    //println!("dz is {}", dZ);
-    //println!("Distance to ground is: {}", dist);
-    let r  = 0.025*10.0;
-    if 0.0+eps+r > dist {
-        obj.set_translation(Vec3::new(obj.get_posistion().x,surface_pos.y+r,obj.get_posistion().z));
-        let normal = dX.cross(dZ).normalize();
-        //println!("\nNormal is {}", normal);
-        //println!("Normal dot down: {}", normal.dot(gravity));
-        let mut down_direction = gravity.cross(normal);
-        down_direction.x = down_direction.x*normal.dot(gravity);
-        //println!("Down is: {}", down_direction);
-        force += down_direction;
+    const EPS: f32 = 0.001;
+    const SPHERE_RADIUS: f32 = 0.25;
+    
+    // 1. Find closest point on surface using spatial search
+    let (surface_point, d_u, d_v) = surface.evaluate(obj.get_posistion()).unwrap_or((Vec3::ZERO,Vec3::ZERO,Vec3::ZERO));
+    // 2. Calculate actual 3D distance
+    let to_sphere = obj.get_posistion() - surface_point;
+    let distance = to_sphere.length();
+    let normal = d_u.cross(d_v).normalize();
+    
+    // 3. Check sphere collision
+    if distance < SPHERE_RADIUS + EPS {
+        let penetration_depth = SPHERE_RADIUS + EPS - distance;
+        obj.translate( normal * penetration_depth);
+        if -3.0 < penetration_depth {
+            obj.set_translation(obj.get_posistion().with_y(surface_point.y+SPHERE_RADIUS));
+        }
+        
+        
+        let velocity = obj.velocity;
+        let normal_speed = velocity.dot(normal);
+        
+        if normal_speed < 0.0 {
+            obj.velocity -= 1.5 * normal_speed * normal; // Bounce factor
+        }
+
+        let tangent_velocity = velocity - normal * normal_speed;
+        obj.velocity -= 0.01 * tangent_velocity; 
     }
-    obj.translate( force*delta_time);
+    
+    obj.velocity += Vec3::new(0.0, -2.0, 0.0) * delta_time;
+    obj.translate(obj.velocity * delta_time);
 }
 
 fn update_game_logic(delta_time: f32, camera: &mut RenderCamera,world_camera: &mut WorldCamera,input_handler: &InputHandler,mut mouse_pos:&mut Vec3, mouse_point: &mut WorldPoint, window: &Window){
