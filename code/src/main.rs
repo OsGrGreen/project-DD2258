@@ -6,8 +6,8 @@ use object::{point::WorldPoint, WorldObject};
 use rand::{distr::{Distribution, Uniform}, Rng};
 use glam::{Mat4, Vec2, Vec3};
 use util::{input_handler::InputHandler, ray_library::{distance_ray_point, ndc_to_direction, ndc_to_intersection, ndc_to_point, world_to_pixel}};
-use winit::{event::{MouseButton, MouseScrollDelta}, event_loop::{ControlFlow, EventLoop}, keyboard, raw_window_handle::HasWindowHandle, window::{Fullscreen, Window}};
-use glium::{backend::Facade, glutin::surface::WindowSurface, implement_vertex, index::PrimitiveType, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Blend, BlendingFunction, Display, LinearBlendingFactor, Surface, VertexBuffer};
+use winit::{dpi::PhysicalSize, event::{MouseButton, MouseScrollDelta}, event_loop::{ControlFlow, EventLoop}, keyboard, raw_window_handle::HasWindowHandle, window::{Fullscreen, Window}};
+use glium::{backend::Facade, framebuffer::SimpleFrameBuffer, glutin::surface::WindowSurface, implement_vertex, index::PrimitiveType, texture::DepthTexture2d, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Blend, BlendingFunction, Display, LinearBlendingFactor, Surface, Texture2d, VertexBuffer};
 use world::{hex::Hex, layout::{HexLayout, Point, EVEN}, offset_coords::{qoffset_from_cube_offsets, qoffset_to_cube, qoffset_to_cube_offsets}, tile::Tile, world_camera::WorldCamera, OffsetTile, NUM_COLMS, NUM_ROWS};
 use std::{io::stdout, time::Instant};
 
@@ -16,8 +16,8 @@ mod object;
 mod grass;
 mod rendering;
 mod bezier_surface;
-use bezier_surface::{create_surface};
-use rendering::{render::{array_to_vbo, Vertex, VertexSimple}, render_camera::RenderCamera, text::{format_to_exact_length, RenderedText, TextVbo}};
+use bezier_surface::{create_surface, create_surface_quad};
+use rendering::{render::{self, array_to_vbo, Vertex, VertexSimple}, render_camera::RenderCamera, text::{format_to_exact_length, RenderedText, TextVbo}};
 
 
 mod util;
@@ -47,7 +47,7 @@ fn init_window()-> (EventLoop<()>, Window, Display<WindowSurface>) {
     let event_loop = winit::event_loop::EventLoopBuilder::new().build().expect("event loop building"); 
     
     event_loop.set_control_flow(ControlFlow::Poll);
-    let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new().with_title("4X4D-WIP").build(&event_loop);
+    let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new().with_title("DD2258 project (Bezier surface)").build(&event_loop);
     
     (event_loop, window, display)
 }
@@ -55,6 +55,7 @@ fn init_window()-> (EventLoop<()>, Window, Display<WindowSurface>) {
 //Camera constants
 
 const CAMERA_SPEED:f32 = 2.0;
+const eps:f32 = 0.0001;
 
 const CONSTANT_FACTOR:f32 = 1.0;
 fn main() {
@@ -79,12 +80,13 @@ fn main() {
     window.set_fullscreen(Some(Fullscreen::Borderless(monitor_handle)));
     let mut width_scale:f64 = window.inner_size().width as f64 / std_width;
     let mut height_scale:f64 = window.inner_size().height as f64 / std_height;
+    //display.resize((256,144));
     println!("Inner size is: {:#?}", window.inner_size());
     println!("widht_scale is: {}", width_scale);
     println!("hejgut scale is: {}", height_scale);
     
     let mut world_camera = WorldCamera::new((NUM_ROWS, NUM_COLMS));
-    
+
 
     let mut cube_object: WorldObject = WorldObject::new();
     let tea_positions = vec![
@@ -172,16 +174,18 @@ fn main() {
     let surface_frag_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/frag.glsl"));
     let surface_tess_ctrl_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/tess_ctrl.glsl"));
     let surface_tess_eval_shader  = util::read_shader(include_bytes!(r"../shaders/bezier_surface/tess_eval.glsl"));
+    let surface_geometry_shader = util::read_shader(include_bytes!(r"../shaders/bezier_surface/geometry.glsl"));
 
     let grass_vert = util::read_shader(include_bytes!(r"../shaders/grass/grass_vert.glsl"));
     let grass_frag = util::read_shader(include_bytes!(r"../shaders/grass/grass_frag.glsl"));
 
-
+    let low_res_vert = util::read_shader(include_bytes!(r"../shaders/resolution/vert.glsl"));
+    let low_res_frag = util::read_shader(include_bytes!(r"../shaders/resolution/frag.glsl"));
 
 
     // Setup specific parameters
 
-    let light = [-1.0, 0.4, 0.9f32];
+    let light = [-1.0, -0.5, 0.0f32];
 
     let line_params = glium::DrawParameters {
         depth: glium::Depth {
@@ -194,15 +198,6 @@ fn main() {
         .. Default::default()
     };
 
-    let surface_params = glium::DrawParameters {
-        depth: glium::Depth {
-            test: glium::DepthTest::IfLess,
-            write: true,
-            .. Default::default()
-        },
-        .. Default::default()
-    };
-
     let text_params = glium::DrawParameters {
         blend: glium::Blend::alpha_blending(),
         .. Default::default()
@@ -210,6 +205,15 @@ fn main() {
 
     let point_params = glium::DrawParameters {
         blend: glium::Blend::alpha_blending(),
+        .. Default::default()
+    };
+
+    let obj_params = glium::DrawParameters {
+        depth: glium::Depth {
+            test: glium::DepthTest::IfLess,
+            write: true,
+            .. Default::default()
+        },
         .. Default::default()
     };
 
@@ -280,10 +284,18 @@ fn main() {
         Vertex{position: [1.0*0.1, 1.0*0.1, 0.0], normal: [0.0,0.0,0.0], tex_coords: [1.0, 1.0]},
         Vertex{position: [-1.0*0.1, 1.0*0.1, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]}
     ];
+
+    //Whole quad
+    let screen_quad:Vec<Vertex> = vec![
+            Vertex{position: [-1.0, -1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 0.0]}, 
+            Vertex{position: [1.0, -1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [1.0, 0.0]},
+            Vertex{position: [1.0, 1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [1.0, 1.0]},
+            Vertex{position: [-1.0, 1.0, 0.0], normal: [0.0,0.0,0.0], tex_coords: [0.0, 1.0]}
+    ];
     
     let quad_indicies = vec![0, 2, 1, 0, 2, 3];
 
-    let obj_renderer = rendering::render::Renderer::new(&tea_positions, &tea_indices, Some(glium::index::PrimitiveType::TrianglesList), &obj_vert, &obj_frag, None, None, None, &display, None, None).unwrap();
+    let mut obj_renderer = rendering::render::Renderer::new(&quad_shape, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &obj_vert, &obj_frag, None, None, None, &display, Some(obj_params), None).unwrap();
     let mut line_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::LinesList), &line_vert_shader, &line_frag_shader, None, &display, Some(line_params)).unwrap();
     let ui_renderer = rendering::render::Renderer::new_empty_dynamic(100, Some(glium::index::PrimitiveType::TrianglesList), &line_vert_shader, &line_frag_shader, None, &display, None).unwrap();
     let text_renderer = rendering::render::Renderer::new(&quad_shape, &quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &text_vert_shader, &text_frag_shader, None, None, None, &display, Some(text_params), None).unwrap();
@@ -292,8 +304,8 @@ fn main() {
     let mut selected_point: i32 = -1;
     let grass = get_grass_shape();
     let grass_renderer = rendering::render::Renderer::new(&grass.0, &grass.1, Some(glium::index::PrimitiveType::TrianglesList), &grass_vert, &grass_frag, None, None, None, &display, Some(grass_params), None).unwrap();
-
-    let mut surface_points = vec![
+    let low_res_renderer = rendering::render::Renderer::new(&screen_quad,&quad_indicies, Some(glium::index::PrimitiveType::TrianglesList), &low_res_vert, &low_res_frag, None, None, None, &display, None, None).unwrap();
+    /*let mut surface_points = vec![
         // Row 0 
         VertexSimple { w_position: [-1.0, 0.0, -1.0]}, // c00
         VertexSimple { w_position: [-0.33, 3.0, -1.0]}, // c01
@@ -330,17 +342,25 @@ fn main() {
         VertexSimple { w_position: [-0.33+6.0, 0.0, 3.0]},  // c31
         VertexSimple { w_position: [0.33+6.0, 0.0, 1.0]},    // c32
         VertexSimple { w_position: [1.0+6.0, 0.0, 1.0]},     // c33
-    ];
-    let mut surface_vbo = glium::VertexBuffer::new(&display, &surface_points).unwrap();
+    ];*/
+
+    let mut bezier_surface= bezier_surface::Surface::new(Vec3::new(-1.0, 0.0, -1.0),2.0,2.0,2,2); 
+    println!("Surface points length: {:#?}", bezier_surface.points.len());
+    println!("Surface points are: {:#?}", bezier_surface.points);
+    let mut surface_vbo: VertexBuffer<VertexSimple> = glium::VertexBuffer::new(&display, &bezier_surface.points).unwrap();
     //Pass this surface_vbo into a compute shader?
-    let surface_renderer = rendering::render::Renderer::new(&vec![], &vec![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,15,11,7,3,16,17,18,19,20,21,22,23,24,25,26,27], Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, Some(surface_params), None).unwrap();
+    let surface_renderer = rendering::render::Renderer::new(&vec![], &bezier_surface.inds, Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, /*Some(surface_geometry_shader)*/None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, None, Some((
+        vec![(&"out_point").to_string()], // the names of the outputs to capture
+        glium::program::TransformFeedbackMode::Interleaved,
+    ))).unwrap();
+    
 
     line_renderer.draw_line((-1.0,-1.0), (1.0,1.0), None);
     let mut fps_text = RenderedText::new(String::from("00000fps"));
     let mut text_vbo = TextVbo::new(100, &display);
     text_vbo.add_text((0.78,0.95), 0.085, Some([1.0,0.5,1.0]), &mut fps_text);
     // Uniform setup
-        // Text uniforms
+    // Text uniforms
     let text_behavior = glium::uniforms::SamplerBehavior {
         minify_filter: MinifySamplerFilter::Nearest,
         magnify_filter: MagnifySamplerFilter::Nearest,
@@ -352,13 +372,14 @@ fn main() {
     camera.perspective = rendering::render::calculate_perspective(window.inner_size().into());
     let mut frames:f32 = 0.0;
 
+    cube_object.scale(Vec3::new(10.0, 10.0, 10.0));
 
     //let mut mouse_pos: Point = Point{x:0.0,y:0.0};
     let mut mouse_pos: Vec3 = Vec3::ZERO;
 
     let mut t: f32 = 0.0;
     let dt: f32 = 0.0167;
-
+    cube_object.set_translation(Vec3::new(0.0, 5.0, 0.0)); 
     let mut current_time = Instant::now();
     let mut accumulator: f32 = 0.0;
     let mut ctrl_pressed = false;
@@ -368,6 +389,8 @@ fn main() {
     let mut overall_fps = 0.0;
     let smoothing = 0.6; // larger=more smoothing
     let _ = event_loop.run(move |event, window_target| {
+        let (world_texture, depth_world_texture) = create_render_textures(&display, 640, 360);
+        let mut fbo = create_fbo(&display, &world_texture, &depth_world_texture);
         match event {
             winit::event::Event::WindowEvent { event, .. } => match event {
             winit::event::WindowEvent::CloseRequested => {
@@ -387,11 +410,14 @@ fn main() {
                     //Make the mouse wheel also simpler...
                     let dist = (mouse_pos-prev_mouse_pos).normalize();
                     println!("Dist is {:#?}", dist);
-                    surface_points[selected_point as usize].w_position[0] += dist.x;
-                    surface_points[selected_point as usize].w_position[1] += dist.y;
+                    bezier_surface.points[selected_point as usize].w_position[0] += dist.x;
+                    bezier_surface.points[selected_point as usize].w_position[1] += dist.y;
+                    //bezier_surface.points[selected_point as usize + 2].w_position[0] -= dist.x;
+                    //bezier_surface.points[selected_point as usize + 2].w_position[1] -= dist.y;
+                    
 
                     //Onödigt att göra om hela ig. Men i dunno är just nu bara 16 punkter...
-                    surface_vbo = glium::VertexBuffer::new(&display, &surface_points).unwrap();
+                    surface_vbo = glium::VertexBuffer::new(&display, &bezier_surface.points).unwrap();
                 }else{
                     //let camera_ndc = world_to_pixel(camera.get_pos(), &camera.camera_matrix, window.inner_size(),&camera.perspective);
                     //println!("Camera pos ndc is: {:#?}", camera_ndc);
@@ -404,10 +430,10 @@ fn main() {
                 if selected_point != -1 && ctrl_pressed{
                     match delta {
                         MouseScrollDelta::LineDelta(x, y) => {
-                            surface_points[selected_point as usize].w_position[2] += y;
+                            bezier_surface.points[selected_point as usize].w_position[2] += y;
 
                             //Onödigt att göra om hela ig. Men i dunno är just nu bara 16 punkter...
-                            surface_vbo = glium::VertexBuffer::new(&display, &surface_points).unwrap();
+                            surface_vbo = glium::VertexBuffer::new(&display, &bezier_surface.points).unwrap();
                         }
                         _ => {}
                     }
@@ -422,7 +448,7 @@ fn main() {
                     let mut i  = -1;
                     let mut min_dist = 100.0;
                     let mut min_ind = -1;
-                    for point in surface_points.iter(){
+                    for point in bezier_surface.points.iter(){
                         i += 1;
                         let dist = distance_ray_point(mouse_point,mouse_dir,Vec3::from_array(point.w_position));
                         if min_dist>dist{
@@ -516,7 +542,9 @@ fn main() {
                     //println!("Clicked Unit has ID:{:?}", entity_handler.get_selected_unit());
                     let time_update = Instant::now();
 
-                    update_game_logic(dt, &mut camera, &mut world_camera, &input_handler, &mut mouse_pos, &mut point, &window); 
+                    update_game_logic(dt, &mut camera, &mut world_camera, &input_handler, &mut mouse_pos, &mut point, &window);
+                   
+                    update_obj_physics(dt, &mut bezier_surface, &mut cube_object);
                     //println!("Update game: {} ms", time_update.elapsed().as_millis());
                     t += dt;
                     accumulator -= dt;
@@ -553,6 +581,7 @@ fn main() {
                 //println!("Before clearing: {} ms",current_time.elapsed().as_millis());
                 let mut target = display.draw();
 
+                fbo.clear_color_and_depth((0.0, 0.1, 1.0, 1.0), 1.0);
                 target.clear_color_and_depth((0.0, 0.1, 1.0, 1.0), 1.0);
                 //println!("Before drawing: {} ms",current_time.elapsed().as_millis());
                 let shader_time = (t*8.0).floor()%8.0;
@@ -561,19 +590,34 @@ fn main() {
                 //println!("Pos is: {}", un_modded_pos);
                 //    float animation_step = mod(tex_offsets.x+1.0*tex_offsets.z*time,animation_length);
                 
-
-                //target.draw(&surface_vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &surface_renderer.draw_params).unwrap();
-                target.draw((&grass_renderer.vbo, grass_instances.per_instance().unwrap()), &grass_renderer.indicies, &grass_renderer.program, &uniform! {u_light: light, threshhold: 0.5 as f32, strength: 0.08 as f32,u_time: t, tex: &grass_texture, u_light: light, model: (Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &grass_renderer.draw_params).unwrap();
+                //println!("Program output is: {:#?}", &surface_renderer.program.get_output_primitives());
+                /*let mut surface_buffer: VertexBuffer<VertexSimple> = glium::VertexBuffer::empty_dynamic(&display, 8192).unwrap();
+                let surface_session = glium::vertex::TransformFeedbackSession::new(&display, &surface_renderer.program, &mut surface_buffer)
+                .expect("Failed to create transform feedback session");
+            */
+                let surface_params = glium::DrawParameters {
+                    //transform_feedback: Some(&surface_session),
+                    depth: glium::Depth {
+                        test: glium::DepthTest::IfLess,
+                        write: true,
+                        .. Default::default()
+                    },
+                    .. Default::default()
+                };
+                //println!("Have created buffers");
+                fbo.draw(&surface_vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {object_color: [0.3 as f32,0.8 as f32,0.0 as f32], u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &surface_params).unwrap();
+                //println!("Have drawn surface");
+                //target.draw((&grass_renderer.vbo, grass_instances.per_instance().unwrap()), &grass_renderer.indicies, &grass_renderer.program, &uniform! {u_light: light, threshhold: 0.5 as f32, strength: 0.08 as f32,u_time: t, tex: &grass_texture, u_light: light, model: (Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &grass_renderer.draw_params).unwrap();
                 //target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
-                target.draw(&point_renderer.vbo, &point_renderer.indicies, &point_renderer.program, &uniform!{radius: point.get_radius(), model: point.get_model().get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &point_renderer.draw_params).unwrap();
-                //target.draw((&mult_point_renderer.vbo, surface_vbo.per_instance().unwrap()), &mult_point_renderer.indicies, &mult_point_renderer.program, &uniform! {selected: selected_point, model: (0.1*Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &mult_point_renderer.draw_params).unwrap();
+                fbo.draw((&mult_point_renderer.vbo, surface_vbo.per_instance().unwrap()), &mult_point_renderer.indicies, &mult_point_renderer.program, &uniform! {selected: selected_point, model: (0.1*Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &mult_point_renderer.draw_params).unwrap();
                 //println!("Buffer is: {:#?}", &surface_renderer.vbo);
 
 
-                //target.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: cube_object.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &Default::default()).unwrap();
+                fbo.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: cube_object.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &obj_renderer.draw_params).unwrap();
                 
+                target.draw(&low_res_renderer.vbo, &low_res_renderer.indicies,&low_res_renderer.program, &uniform! {tex: &world_texture}, &low_res_renderer.draw_params).unwrap();
 
-                
+                target.draw(&point_renderer.vbo, &point_renderer.indicies, &point_renderer.program, &uniform!{radius: point.get_radius(), model: point.get_model().get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &point_renderer.draw_params).unwrap();
                 target.draw(&ui_renderer.vbo, &ui_renderer.indicies, &ui_renderer.program, &uniform! {tex:&font_atlas}, &Default::default()).unwrap();
                 target.draw((&text_renderer.vbo, text_vbo.vbo.per_instance().unwrap()), &text_renderer.indicies, &text_renderer.program, &uniform! {tex:glium::uniforms::Sampler(&font_atlas, text_behavior)}, &text_renderer.draw_params).unwrap();
                 
@@ -605,6 +649,28 @@ fn main() {
     });
 }
 
+fn update_obj_physics(delta_time: f32, surface: &mut bezier_surface::Surface, obj:&mut WorldObject){
+    let gravity = Vec3::new(0.0, -1.0, 0.0);
+    let mut force: Vec3 = gravity;
+    let (surface_pos, dX,dZ) = surface.evaluate(obj.get_posistion()).unwrap_or((Vec3::new(0.0, -5.0, 0.0), Vec3::ZERO, Vec3::ZERO));
+    let dist = obj.get_posistion().y-surface_pos.y;
+    println!("Surface pos is {}", surface_pos);
+    println!("dX is {}", dX);
+    println!("dz is {}", dZ);
+    //println!("Distance to ground is: {}", dist);
+    let r  = 0.025*10.0;
+    if 0.0+eps+r > dist {
+        obj.set_translation(Vec3::new(obj.get_posistion().x,surface_pos.y+r,obj.get_posistion().z));
+        let normal = dX.cross(dZ).normalize();
+        println!("\nNormal is {}", normal);
+        println!("Normal dot down: {}", normal.dot(gravity));
+        let mut down_direction = gravity.cross(normal);
+        down_direction.x = down_direction.x*normal.dot(gravity);
+        println!("Down is: {}", down_direction);
+        force += down_direction;
+    }
+    obj.translate( force*delta_time);
+}
 
 fn update_game_logic(delta_time: f32, camera: &mut RenderCamera,world_camera: &mut WorldCamera,input_handler: &InputHandler,mut mouse_pos:&mut Vec3, mouse_point: &mut WorldPoint, window: &Window){
     //Update movement (Kanske göra efter allt annat... possibly):
@@ -647,4 +713,18 @@ fn update_game_logic(delta_time: f32, camera: &mut RenderCamera,world_camera: &m
 
 pub fn get_clicked_pos(mouse_pos: &mut Point, world_camera: &mut WorldCamera){
 
+}
+
+fn create_render_textures(display: &Display<WindowSurface>, width: u32, height: u32) -> (Texture2d, DepthTexture2d) {
+    let color_texture = Texture2d::empty(display, width, height).unwrap();
+    let depth_texture = DepthTexture2d::empty(display, width, height).unwrap();
+    (color_texture, depth_texture)
+}
+
+fn create_fbo<'a>(
+    display: &'a Display<WindowSurface>,
+    color_texture: &'a Texture2d,
+    depth_texture: &'a DepthTexture2d,
+) -> SimpleFrameBuffer<'a> {
+    SimpleFrameBuffer::with_depth_buffer(display, color_texture, depth_texture).unwrap()
 }

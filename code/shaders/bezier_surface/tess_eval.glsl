@@ -1,9 +1,10 @@
 #version 450 core
 
-layout(quads) in;
+layout(quads, fractional_odd_spacing, ccw) in;
 
 out vec3 fragment_Normal;
 out vec4 fragment_Position;
+out vec3 out_point;  // Output to capture
 
 void BernsteinPolynomials(out float[4] b, out float[4] db, float t) {
 
@@ -20,7 +21,7 @@ void BernsteinPolynomials(out float[4] b, out float[4] db, float t) {
 }
 
 void main() {
-
+	
 	float u = gl_TessCoord.x;
 	float v = gl_TessCoord.y;
 
@@ -68,5 +69,5 @@ void main() {
 	fragment_Normal = normalize(cross(dPos_du, dPos_dv));
 
 	gl_Position = fragment_Position;
-
+	out_point = vec3(fragment_Position);
 }

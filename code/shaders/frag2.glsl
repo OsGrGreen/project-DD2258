@@ -2,6 +2,7 @@
 
 in vec3 v_normal;
 in vec3 v_position;
+in vec2 v_tex_coords;
 
 uniform vec3 u_light;
 
@@ -14,6 +15,9 @@ const vec3 specular_color = vec3(1.0, 1.0, 1.0);
 
 
 void main() {
+    if ( length(v_tex_coords-vec2(0.5,0.5)) > 0.2){
+        discard;
+    }
     float diffuse = max(dot(normalize(v_normal), normalize(u_light)), 0.0);
 
     vec3 camera_dir = normalize(-v_position);

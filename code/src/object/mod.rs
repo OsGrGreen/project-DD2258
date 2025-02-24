@@ -6,6 +6,7 @@ pub struct WorldObject{
     scaling: Mat4,
     rotation: Mat4,
     translation: Mat4,
+    pub velocity: Vec3,
 }
 
 impl WorldObject{
@@ -14,6 +15,7 @@ impl WorldObject{
             scaling: Mat4::IDENTITY,
             rotation: Mat4::IDENTITY,
             translation: Mat4::IDENTITY,
+            velocity: Vec3::new(0.0, -2.0, 0.0),
         }
     }
     pub fn new_from_pos(initial_pos: Vec3) -> WorldObject{
@@ -21,6 +23,7 @@ impl WorldObject{
             scaling: Mat4::IDENTITY,
             rotation: Mat4::IDENTITY,
             translation: Mat4::from_translation(initial_pos),
+            velocity: Vec3::new(0.0, -2.0, 0.0),
         }
     }
 

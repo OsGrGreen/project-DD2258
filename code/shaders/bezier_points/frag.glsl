@@ -14,5 +14,5 @@ void main() {
     if ( length(v_tex_coords-vec2(0.5,0.5)) > 0.2){
         discard;
     }
-    color = vec4(0.,v_selected,1.,1.) ;
+    color = vec4(1.,v_selected,0.,1.);
 }
