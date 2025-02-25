@@ -85,7 +85,7 @@ impl Surface{
 
 
                         samples.push(GrassVertex {
-                            g_position: (pos+Vec3::new(rng.random_range(-0.2..0.2), 0.0, rng.random_range(-0.2..0.2))).to_array(),
+                            g_position: (pos).to_array(),
                             g_normal: du_vec.cross(dv_vec).to_array(),
                         });
                     }
