@@ -89,8 +89,6 @@ impl TextVbo{
             vert_start += 1;
         }
         slice_for_char.write(&read_slice);
-
-        //println!("After replacing text: {:#?}\n", self.indicies.read().unwrap());
     }
 
 

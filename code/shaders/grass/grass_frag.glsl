@@ -11,9 +11,10 @@ out vec4 color;
 
 void main() {
     color = texture(tex,v_tex_coords);
-    color.r *= v_color_change;
-    color.g -= v_color_change/3;
-    //float ndotl = dot(u_light, normalize(v_normal));
-    //color = color*ndotl;
+    color.r += v_color_change;
+    //color.g -= v_color_change/3;
+
+    //This was needed to remove some weird edges on the grass...
+    //Probably not ideal however it works
     if (color.a < 0.5) discard;
 }

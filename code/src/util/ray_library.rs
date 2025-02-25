@@ -2,6 +2,11 @@ use glam::{Mat4, Vec2, Vec3, Vec4, Vec4Swizzles};
 use winit::dpi::PhysicalSize;
 
 
+//For all of these functions the following idea holds:
+/*Basically just make the reverse of the camera and perspective to translate screen pos to world pos */
+
+
+//Is this even accurate?
 pub fn distance_ray_point(ray_origin: Vec3, ray_direction: Vec3, point: Vec3) -> f32{
     let point_to_origin = point - ray_origin;
     let cross_product = ray_direction.cross(point_to_origin);
@@ -37,12 +42,6 @@ pub fn world_to_pixel(
 } 
 
 pub fn ray_plane_intersect(p0: Vec3, d: Vec3, q: Vec3, n: Vec3) -> Vec3 {
-    /*
-    P0: The starting point of the ray 
-    d: The direction vector of the ray 
-    Q: A point on the plane 
-    n: The normal vector of the plane 
-    */
 
     let denom = n.dot(d);
 

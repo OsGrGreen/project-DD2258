@@ -2,7 +2,7 @@
 
 layout(vertices=16) out;
 
-uniform float steps;
+uniform float steps; //The amount of "detail"
 
 void main() {
 

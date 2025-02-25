@@ -4,7 +4,7 @@ layout(quads, fractional_odd_spacing, ccw) in;
 
 out vec3 fragment_Normal;
 out vec4 fragment_Position;
-out vec3 out_point;  // Output to capture
+out vec3 out_point;  // Output to capture (Does not work :( )
 
 void BernsteinPolynomials(out float[4] b, out float[4] db, float t) {
 
@@ -24,6 +24,7 @@ void main() {
 	
 	float u = gl_TessCoord.x;
 	float v = gl_TessCoord.y;
+	//To make the sums a little bit nicer
 
 	vec4 p00 = gl_in[0].gl_Position;
 	vec4 p01 = gl_in[1].gl_Position;
@@ -45,12 +46,12 @@ void main() {
 	vec4 p32 = gl_in[14].gl_Position;
 	vec4 p33 = gl_in[15].gl_Position;
 
-	//bernstein polynomials for interpolating
-	//in u and v directions
+	//bernstein polynomials for interpolating in u and v directions
 	float bu[4], dbu[4], bv[4], dbv[4];
 	BernsteinPolynomials(bu, dbu, u);
 	BernsteinPolynomials(bv, dbv, v);
 
+	//The double sum but written in full
 	fragment_Position = p00*bu[0]*bv[0] + p01*bu[0]*bv[1] + p02*bu[0]*bv[2] + p03*bu[0]*bv[3] + 
 		p10*bu[1]*bv[0] + p11*bu[1]*bv[1] + p12*bu[1]*bv[2] + p13*bu[1]*bv[3] + 
 		p20*bu[2]*bv[0] + p21*bu[2]*bv[1] + p22*bu[2]*bv[2] + p23*bu[2]*bv[3] + 

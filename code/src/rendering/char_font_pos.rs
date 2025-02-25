@@ -1,4 +1,5 @@
-
+/* A file to just translate chars to their correct tex coords offsets */
+/* Quicker to have it precomputed */
 
 pub const CHAR_TO_TEX: [[f32;2];127] = [
     [0.0,0.0], //SOH

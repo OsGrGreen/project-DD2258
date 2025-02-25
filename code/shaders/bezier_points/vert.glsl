@@ -27,6 +27,7 @@ void main() {
 
     v_tex_coords = tex_coords;
 
+    //Maybe not the fastest
     if (gl_InstanceID == selected){
         v_selected = 1.0;
     }else{

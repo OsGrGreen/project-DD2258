@@ -19,6 +19,7 @@ void main() {
     vec3 up = vec3(view[0][1], view[1][1], view[2][1]);
 
     // Calculate the billboard's vertex positions
+    // Make it always face camera
     vec3 billboard_pos = center_pos
         + (right * (position.x)/2)
         + (up * (position.y)/2);

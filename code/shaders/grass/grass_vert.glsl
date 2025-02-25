@@ -22,6 +22,10 @@ out float v_color_change;
 #define hash(x)  ( float( hashi(x) ) / float( 0xffffffffU ) )
 
 
+//Hash functions taken from the internet
+//Used to create some pseudorandomness of the grass height color
+//(Some grass have red tips)
+
 //bias: 0.17353355999581582 ( very probably the best of its kind )
 uint lowbias32(uint x)
 {
@@ -75,6 +79,5 @@ void main() {
     v_tex_coords = tex_coords;
 
     v_color_change = (id_hash*(tex_coords.y))/0.5;
-    //v_tex_coords = vec2(tex_offsets.x+tex_coords.x*tex_offsets.z, tex_offsets.y+tex_coords.y*tex_offsets.z);
 }
 

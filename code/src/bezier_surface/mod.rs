@@ -12,11 +12,11 @@ implement_vertex!(GrassVertex, g_position, g_normal);
 
 
 pub struct Surface{
-    start_pos: Vec3,
-    num_quads_x: usize,
-    num_quads_z: usize,
-    step_size_x: f32,
-    step_size_z: f32,
+    pub start_pos: Vec3,
+    pub num_quads_x: usize,
+    pub num_quads_z: usize,
+    pub step_size_x: f32,
+    pub step_size_z: f32,
     pub points: Vec<VertexSimple>,
     pub inds: Vec<u16>
 }
@@ -44,17 +44,19 @@ impl Surface{
 
     pub fn get_grass_posistions(&self, grass_per_dim_quad: usize) -> Vec<GrassVertex>{
         let mut samples = Vec::new();
-        // Total vertices per row in the full grid.
+        // Im sure there must be a better way to do this...
+        // But once again it seems to work
+        // And the deadline was getting pretty close
         let total_vertices_x = self.num_quads_x * 3 + 1;
+        //Previously added random offset to each posistion
+        //However, this will never make the grass have the same posistion twice
+        //Which looks bad when updating the grass many times in a row
         let mut rng = rand::rng();
-        // Loop through each quad in the grid.
         for quad_z in 0..self.num_quads_z {
             for quad_x in 0..self.num_quads_x {
-                // For each quad, compute its starting grid coordinates.
                 let start_x = quad_x * 3;
                 let start_z = quad_z * 3;
                 
-                // Extract the 16 control points (4×4 block) for the current quad.
                 let mut quad_vertices = Vec::with_capacity(16);
                 for i in 0..4 {
                     for j in 0..4 {
@@ -63,8 +65,6 @@ impl Surface{
                     }
                 }
                 
-                // Now, sample the quad. u and v vary between 0.0 and 1.0.
-                // If there is only one sample, use 0.0; otherwise, space them evenly.
                 for v_idx in 0..grass_per_dim_quad {
                     let v = if grass_per_dim_quad > 1 {
                         v_idx as f32 / (grass_per_dim_quad - 1) as f32
@@ -102,13 +102,10 @@ impl Surface{
         let bez_in = self.get_quad_data(pos);
         
         if bez_in.is_none(){
-            //println!("bez in is none");
             return None
         }
 
         let (points, (u,v)) = bez_in.unwrap();
-        //println!("U and V is: {}, {}", u, v);
-        //println!("Points are: {:#?}", points);
         let (bu, dbu) = Self::bernstain(u);
         let (bv, dbv) = Self::bernstain(v);
         
@@ -122,16 +119,16 @@ impl Surface{
                             points[2]*bu[2]*bv[0] + points[6]*bu[2]*bv[1] + points[10]*bu[2]*bv[2] + points[14]*bu[2]*bv[3] + 
                             points[3]*bu[3]*bv[0] + points[7]*bu[3]*bv[1] + points[11]*bu[3]*bv[2] + points[15]*bu[3]*bv[3];
 
-        let dPos_du =         points[0]*dbu[0]*bv[0] + points[4]*dbu[0]*bv[1] + points[8]*dbu[0]*bv[2] + points[12]*dbu[0]*bv[3] + 
+        let d_pos_du =         points[0]*dbu[0]*bv[0] + points[4]*dbu[0]*bv[1] + points[8]*dbu[0]*bv[2] + points[12]*dbu[0]*bv[3] + 
                                     points[1]*dbu[1]*bv[0] + points[5]*dbu[1]*bv[1] + points[9]*dbu[1]*bv[2] + points[13]*dbu[1]*bv[3] + 
                                     points[2]*dbu[2]*bv[0] + points[6]*dbu[2]*bv[1] + points[10]*dbu[2]*bv[2] + points[14]*dbu[2]*bv[3] + 
                                     points[3]*dbu[3]*bv[0] + points[7]*dbu[3]*bv[1] + points[11]*dbu[3]*bv[2] + points[15]*dbu[3]*bv[3];
 
-        let dPos_dv =         points[0]*bu[0]*dbv[0] + points[4]*bu[0]*dbv[1] + points[8]*bu[0]*dbv[2] + points[12]*bu[0]*dbv[3] + 
+        let d_pos_dv =         points[0]*bu[0]*dbv[0] + points[4]*bu[0]*dbv[1] + points[8]*bu[0]*dbv[2] + points[12]*bu[0]*dbv[3] + 
                                     points[1]*bu[1]*dbv[0] + points[5]*bu[1]*dbv[1] + points[9]*bu[1]*dbv[2] + points[13]*bu[1]*dbv[3] + 
                                     points[2]*bu[2]*dbv[0] + points[6]*bu[2]*dbv[1] + points[10]*bu[2]*dbv[2] + points[14]*bu[2]*dbv[3] + 
                                     points[3]*bu[3]*dbv[0] + points[7]*bu[3]*dbv[1] + points[11]*bu[3]*dbv[2] + points[15]*bu[3]*dbv[3];  
-        return (ev_pos, dPos_du, dPos_dv)
+        return (ev_pos, d_pos_du, d_pos_dv)
     }
 
     fn get_quad_data(&self, point: Vec3) -> Option<(Vec<Vec3>, (f32, f32))> {
@@ -139,13 +136,11 @@ impl Surface{
         let total_vertices_x = self.num_quads_x * 3 + 1;
         let quad_width = 3.0 * self.step_size_x;
         let quad_depth = 3.0 * self.step_size_z;
-        //println!("quad_width = {}, quad_depth = {}", quad_width, quad_depth);
 
 
     
         let dx = point.x - self.start_pos.x;
         let dz = point.z - self.start_pos.z;
-        //println!("Dx is {}, Dz is {}", dx, dz);
 
         let total_width = self.num_quads_x as f32 * quad_width;
         let total_depth = self.num_quads_z as f32 * quad_depth;
@@ -179,6 +174,7 @@ impl Surface{
     }
 
     //Precompute this...
+    //Atleast for the grass or something
     fn bernstain(t: f32)-> ([f32;4], [f32;4]){
         let mut b = [0.0;4];
         b[0] = (1.0 - t).powi(3);
@@ -198,20 +194,6 @@ impl Surface{
 }
 
 
-pub fn create_surface_quad(start_pos: Vec3, size: Vec3) -> Vec<VertexSimple>{
-    //Lägg till assert så den kallar att det är en pow av två
-    let step_size_x = (size.x-start_pos.x).abs();
-    let step_size_z = (size.z-start_pos.z).abs();
-    let mut surface_points: Vec<VertexSimple> = Vec::with_capacity(16);
-    for i in 0..4{
-        for j in 0..4{
-            surface_points.push(VertexSimple{w_position: [start_pos.x + step_size_x*j as f32, 0.0, start_pos.z + step_size_z*i as f32]});
-        }
-    }
-    let add_vec= Vec3::new(0.0,0.0,4.0);
-    surface_points.append(&mut create_connected_quad(start_pos+add_vec, size));
-    return surface_points;
-}
 
 pub fn create_surface(
     start_pos: Vec3,
@@ -220,22 +202,18 @@ pub fn create_surface(
     num_quads_x: usize,
     num_quads_z: usize,
 ) -> (Vec<VertexSimple>, Vec<u16>) {
-    // Calculate total vertices in each direction
     let total_vertices_x = num_quads_x * 3 + 1;
     let total_vertices_z = num_quads_z * 3 + 1;
 
-    // Generate all vertices in a grid
     let mut vertices = Vec::with_capacity(total_vertices_x * total_vertices_z);
     for z in 0..total_vertices_z {
         for x in 0..total_vertices_x {
             let pos_x = start_pos.x + x as f32 * step_size_x;
             let pos_z = start_pos.z + z as f32 * step_size_z;
-            //println!("Position is ({}, {})", pos_x, pos_z);
             vertices.push(VertexSimple {
                 w_position: [pos_x, start_pos.y, pos_z],
             });
         }
-        //println!();
     }
 
     let mut indices = Vec::with_capacity(num_quads_x * num_quads_z * 16);
@@ -256,18 +234,4 @@ pub fn create_surface(
     }
 
     (vertices, indices)
-}
-
-fn create_connected_quad(start_pos: Vec3, size: Vec3) -> Vec<VertexSimple>{
-    //Lägg till assert så den kallar att det är en pow av två
-    let step_size_x = (size.x-start_pos.x).abs();
-    let step_size_z = (size.z-start_pos.z).abs();
-    let mut surface_points: Vec<VertexSimple> = Vec::with_capacity(16);
-    for i in 0..4{
-        for j in 0..4{
-            surface_points.push(VertexSimple{w_position: [start_pos.x + step_size_x*j as f32, 0.0, start_pos.z + step_size_z*i as f32]});
-        }
-    }
-
-    return surface_points;
 }
