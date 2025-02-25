@@ -99,9 +99,10 @@ impl Surface{
 
     pub fn evaluate(&self, pos: Vec3) -> Option<(Vec3,Vec3,Vec3)>{
 
-        let bez_in = self.get_points(pos);
-
+        let bez_in = self.get_quad_data(pos);
+        
         if bez_in.is_none(){
+            //println!("bez in is none");
             return None
         }
 
@@ -116,61 +117,65 @@ impl Surface{
     }
 
     fn get(points: &Vec<Vec3>, bu: [f32;4], dbu: [f32;4], bv: [f32;4], dbv: [f32;4]) -> (Vec3,Vec3,Vec3){
-        let ev_pos = points[0]*bu[0]*bv[0] + points[1]*bu[0]*bv[1] + points[2]*bu[0]*bv[2] + points[3]*bu[0]*bv[3] + 
-                                points[4]*bu[1]*bv[0] + points[5]*bu[1]*bv[1] + points[6]*bu[1]*bv[2] + points[7]*bu[1]*bv[3] + 
-                                points[8]*bu[2]*bv[0] + points[9]*bu[2]*bv[1] + points[10]*bu[2]*bv[2] + points[11]*bu[2]*bv[3] + 
-                                points[12]*bu[3]*bv[0] + points[13]*bu[3]*bv[1] + points[14]*bu[3]*bv[2] + points[15]*bu[3]*bv[3];
+        let ev_pos = points[0]*bu[0]*bv[0] + points[4]*bu[0]*bv[1] + points[8]*bu[0]*bv[2] + points[12]*bu[0]*bv[3] + 
+                            points[1]*bu[1]*bv[0] + points[5]*bu[1]*bv[1] + points[9]*bu[1]*bv[2] + points[13]*bu[1]*bv[3] + 
+                            points[2]*bu[2]*bv[0] + points[6]*bu[2]*bv[1] + points[10]*bu[2]*bv[2] + points[14]*bu[2]*bv[3] + 
+                            points[3]*bu[3]*bv[0] + points[7]*bu[3]*bv[1] + points[11]*bu[3]*bv[2] + points[15]*bu[3]*bv[3];
 
-        let dPos_du =         points[0]*dbu[0]*bv[0] + points[1]*dbu[0]*bv[1] + points[2]*dbu[0]*bv[2] + points[3]*dbu[0]*bv[3] + 
-                                    points[4]*dbu[1]*bv[0] + points[5]*dbu[1]*bv[1] + points[6]*dbu[1]*bv[2] + points[7]*dbu[1]*bv[3] + 
-                                    points[8]*dbu[2]*bv[0] + points[9]*dbu[2]*bv[1] + points[10]*dbu[2]*bv[2] + points[11]*dbu[2]*bv[3] + 
-                                    points[12]*dbu[3]*bv[0] + points[13]*dbu[3]*bv[1] + points[14]*dbu[3]*bv[2] + points[15]*dbu[3]*bv[3];
+        let dPos_du =         points[0]*dbu[0]*bv[0] + points[4]*dbu[0]*bv[1] + points[8]*dbu[0]*bv[2] + points[12]*dbu[0]*bv[3] + 
+                                    points[1]*dbu[1]*bv[0] + points[5]*dbu[1]*bv[1] + points[9]*dbu[1]*bv[2] + points[13]*dbu[1]*bv[3] + 
+                                    points[2]*dbu[2]*bv[0] + points[6]*dbu[2]*bv[1] + points[10]*dbu[2]*bv[2] + points[14]*dbu[2]*bv[3] + 
+                                    points[3]*dbu[3]*bv[0] + points[7]*dbu[3]*bv[1] + points[11]*dbu[3]*bv[2] + points[15]*dbu[3]*bv[3];
 
-        let dPos_dv =         points[0]*bu[0]*dbv[0] + points[1]*bu[0]*dbv[1] + points[2]*bu[0]*dbv[2] + points[3]*bu[0]*dbv[3] + 
-                                    points[4]*bu[1]*dbv[0] + points[5]*bu[1]*dbv[1] + points[6]*bu[1]*dbv[2] + points[7]*bu[1]*dbv[3] + 
-                                    points[8]*bu[2]*dbv[0] + points[9]*bu[2]*dbv[1] + points[10]*bu[2]*dbv[2] + points[11]*bu[2]*dbv[3] + 
-                                    points[12]*bu[3]*dbv[0] + points[13]*bu[3]*dbv[1] + points[14]*bu[3]*dbv[2] + points[15]*bu[3]*dbv[3];  
+        let dPos_dv =         points[0]*bu[0]*dbv[0] + points[4]*bu[0]*dbv[1] + points[8]*bu[0]*dbv[2] + points[12]*bu[0]*dbv[3] + 
+                                    points[1]*bu[1]*dbv[0] + points[5]*bu[1]*dbv[1] + points[9]*bu[1]*dbv[2] + points[13]*bu[1]*dbv[3] + 
+                                    points[2]*bu[2]*dbv[0] + points[6]*bu[2]*dbv[1] + points[10]*bu[2]*dbv[2] + points[14]*bu[2]*dbv[3] + 
+                                    points[3]*bu[3]*dbv[0] + points[7]*bu[3]*dbv[1] + points[11]*bu[3]*dbv[2] + points[15]*bu[3]*dbv[3];  
         return (ev_pos, dPos_du, dPos_dv)
     }
 
-    fn get_points(&self, pos: Vec3)-> Option<(Vec<Vec3>, (f32,f32))>{
-        let grid_pos = pos - self.start_pos;
-        if grid_pos.x < 0.0 || grid_pos.z < 0.0{
-            //println!("Point is too far away!");
-            return None;
-        }   
+    fn get_quad_data(&self, point: Vec3) -> Option<(Vec<Vec3>, (f32, f32))> {
+
+        let total_vertices_x = self.num_quads_x * 3 + 1;
         let quad_width = 3.0 * self.step_size_x;
         let quad_depth = 3.0 * self.step_size_z;
+        //println!("quad_width = {}, quad_depth = {}", quad_width, quad_depth);
 
-        let quad_index_x = (grid_pos.x  / quad_width).floor() as usize;
-        let quad_index_z = (grid_pos.z / quad_depth).floor() as usize;
 
-        if quad_index_x >= self.num_quads_x || quad_index_z >= self.num_quads_z {
-            //println!("Point is outside!");
+    
+        let dx = point.x - self.start_pos.x;
+        let dz = point.z - self.start_pos.z;
+        //println!("Dx is {}, Dz is {}", dx, dz);
+
+        let total_width = self.num_quads_x as f32 * quad_width;
+        let total_depth = self.num_quads_z as f32 * quad_depth;
+        if dx < 0.0 || dz < 0.0 || dx > total_width || dz > total_depth {
             return None;
         }
 
-        let start_x = quad_index_x * 3;
-        let start_z = quad_index_z * 3;
-        let total_vertices_x = self.num_quads_x * 3 + 1;
+        let quad_x = (dx / quad_width).floor() as usize;
+        let quad_z = (dz / quad_depth).floor() as usize;
 
-        // Compute how far into the quad we are in x and z directions (0.0 to 1.0)
-        let u = (grid_pos.x % quad_width) / quad_width;
-        let v = (grid_pos.z % quad_depth) / quad_depth;
-        // Now collect the 16 vertices from the 4×4 block.
-        let mut quad_vertices = Vec::with_capacity(16);
-        for i in 0..4 {
-            for j in 0..4 {
-                let vertex_index = (start_z + i) * total_vertices_x + (start_x + j);
-                // Extra check in case the index goes out of bounds.
-                if vertex_index >= self.points.len() {
+
+        let local_x = dx - (quad_x as f32 * quad_width);
+        let local_z = dz - (quad_z as f32 * quad_depth);
+        let u = local_x / quad_width;
+        let v = local_z / quad_depth;
+    
+        let mut control_points = Vec::with_capacity(16);
+        for v_idx in 0..4 {
+            for u_idx in 0..4 {
+                let grid_x = quad_x * 3 + u_idx; 
+                let grid_z = quad_z * 3 + v_idx; 
+                let index = grid_z * total_vertices_x + grid_x;
+                if index >= self.points.len() {
                     return None;
                 }
-                quad_vertices.push(Vec3::from_array(self.points[vertex_index].w_position));
+                control_points.push(Vec3::from_array(self.points[index].w_position));
             }
         }
-        
-        Some((quad_vertices, (u,v)))
+
+        Some((control_points, (u, v)))
     }
 
     //Precompute this...
@@ -225,20 +230,21 @@ pub fn create_surface(
         for x in 0..total_vertices_x {
             let pos_x = start_pos.x + x as f32 * step_size_x;
             let pos_z = start_pos.z + z as f32 * step_size_z;
+            //println!("Position is ({}, {})", pos_x, pos_z);
             vertices.push(VertexSimple {
                 w_position: [pos_x, start_pos.y, pos_z],
             });
         }
+        //println!();
     }
 
-    // Generate indices for each quad (4x4 points per quad)
     let mut indices = Vec::with_capacity(num_quads_x * num_quads_z * 16);
     for quad_z in 0..num_quads_z {
         for quad_x in 0..num_quads_x {
             let start_x = quad_x * 3;
             let start_z = quad_z * 3;
             
-            // Add indices for 4x4 grid in row-major order
+            // Row-major order
             for i in 0..4 {
                 for j in 0..4 {
                     let x = start_x + j;

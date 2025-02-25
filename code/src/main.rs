@@ -9,6 +9,7 @@ use util::{input_handler::InputHandler, ray_library::{distance_ray_point, ndc_to
 use winit::{dpi::PhysicalSize, event::{MouseButton, MouseScrollDelta}, event_loop::{ControlFlow, EventLoop}, keyboard, raw_window_handle::HasWindowHandle, window::{Fullscreen, Window}};
 use glium::{backend::Facade, framebuffer::SimpleFrameBuffer, glutin::surface::WindowSurface, implement_vertex, index::PrimitiveType, texture::DepthTexture2d, uniforms::{MagnifySamplerFilter, MinifySamplerFilter}, Blend, BlendingFunction, Display, LinearBlendingFactor, Surface, Texture2d, VertexBuffer};
 use world::{hex::Hex, layout::{HexLayout, Point, EVEN}, offset_coords::{qoffset_from_cube_offsets, qoffset_to_cube, qoffset_to_cube_offsets}, tile::Tile, world_camera::WorldCamera, OffsetTile, NUM_COLMS, NUM_ROWS};
+use core::f32;
 use std::{io::stdout, time::Instant};
 
 
@@ -88,7 +89,7 @@ fn main() {
     let mut world_camera = WorldCamera::new((NUM_ROWS, NUM_COLMS));
 
 
-    let mut cube_object: WorldObject = WorldObject::new();
+    
     let tea_positions = vec![
         // FRONT
         Vertex { position: [0.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0], tex_coords: [0.0, 0.0] },  // [00]
@@ -334,19 +335,28 @@ fn main() {
         VertexSimple { w_position: [0.33+6.0, 0.0, 1.0]},    // c32
         VertexSimple { w_position: [1.0+6.0, 0.0, 1.0]},     // c33
     ];*/
-
-    let mut bezier_surface= bezier_surface::Surface::new(Vec3::new(-1.0, 0.0, -1.0),2.0,2.0,2,2); 
+    let mut bezier_quads = 1;
+    let mut grass_density = 16;
+    let mut bezier_surface= bezier_surface::Surface::new(Vec3::new(-1.0, 0.0, -1.0),2.0,2.0,1,1); 
     println!("Surface points length: {:#?}", bezier_surface.points.len());
-    println!("Surface points are: {:#?}", bezier_surface.points);
+    //println!("Surface points are: {:#?}", bezier_surface.points);
+    /*println!("Point {} is evaluated to: {:?}", Vec3::new(4.0,0.0,-1.0), bezier_surface.evaluate(Vec3::new(4.0,0.0,-1.0)).unwrap().0);
+    println!("Point {} is evaluated to: {:?}", Vec3::new(0.5,0.0,-1.0), bezier_surface.evaluate(Vec3::new(0.5,0.0,-1.0)).unwrap().0);
+    println!("Point {} is evaluated to: {:?}", Vec3::new(1.5,0.0,-1.0), bezier_surface.evaluate(Vec3::new(1.5,0.0,-1.0)).unwrap().0);
+    if bezier_quads > 0{
+        return;
+    }*/
     let mut surface_vbo: VertexBuffer<VertexSimple> = glium::VertexBuffer::new(&display, &bezier_surface.points).unwrap();
+    let mut surface_indicies = glium::IndexBuffer::new(&display,PrimitiveType::Patches {vertices_per_patch: 16,},
+    &bezier_surface.inds).unwrap();
     //Pass this surface_vbo into a compute shader?
-    let surface_renderer = rendering::render::Renderer::new(&vec![], &bezier_surface.inds, Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, /*Some(surface_geometry_shader)*/None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, None, Some((
+    let surface_renderer = rendering::render::Renderer::new(&vec![], &vec![], Some(PrimitiveType::Patches {vertices_per_patch: 16,}), &surface_vert_shader, &surface_frag_shader, /*Some(surface_geometry_shader)*/None, Some(&surface_tess_ctrl_shader), Some(&surface_tess_eval_shader), &display, None, Some((
         vec![(&"out_point").to_string()], // the names of the outputs to capture
         glium::program::TransformFeedbackMode::Interleaved,
     ))).unwrap();
     
     let now = Instant::now();
-    let mut grass_pos:Vec<GrassVertex> = bezier_surface.get_grass_posistions(16);
+    let mut grass_pos:Vec<GrassVertex> = bezier_surface.get_grass_posistions(grass_density);
     let mut grass_instances = glium::VertexBuffer::new(&display, &grass_pos).unwrap();
     println!("Updating {} grass pos took: {:.2?}", grass_pos.len(), now.elapsed());
 
@@ -364,17 +374,33 @@ fn main() {
 
     let _light = [-1.0, 0.4, 0.9f32];
 
+    
+
     camera.perspective = rendering::render::calculate_perspective(window.inner_size().into());
     let mut frames:f32 = 0.0;
+    let mut obj1: WorldObject = WorldObject::new();
+    obj1.scale(Vec3::new(10.0, 10.0, 10.0));
+    obj1.set_translation(Vec3::new(0.0, 5.0, 0.0)); 
 
-    cube_object.scale(Vec3::new(10.0, 10.0, 10.0));
+    let mut obj2: WorldObject = WorldObject::new();
+    obj2.scale(Vec3::new(10.0, 10.0, 10.0));
+    obj2.set_translation(Vec3::new(0.5, 6.0, 0.5)); 
+
+    let mut obj3: WorldObject = WorldObject::new();
+    obj3.scale(Vec3::new(10.0, 10.0, 10.0));
+    obj3.set_translation(Vec3::new(1.2, 7.0, 0.2)); 
+
+    let mut obj4: WorldObject = WorldObject::new();
+    obj4.scale(Vec3::new(10.0, 10.0, 10.0));
+    obj4.set_translation(Vec3::new(0.7, 5.0, 0.7)); 
+
+    let mut world_objs: Vec<WorldObject> = vec![obj1, obj2, obj3, obj4];
 
     //let mut mouse_pos: Point = Point{x:0.0,y:0.0};
     let mut mouse_pos: Vec3 = Vec3::ZERO;
 
     let mut t: f32 = 0.0;
     let dt: f32 = 0.0167;
-    cube_object.set_translation(Vec3::new(0.0, 5.0, 0.0)); 
     let mut current_time = Instant::now();
     let mut accumulator: f32 = 0.0;
     let mut ctrl_pressed = false;
@@ -412,7 +438,7 @@ fn main() {
                     
 
                     //Onödigt att göra om hela ig. Men i dunno är just nu bara 16 punkter...
-                    grass_instances = glium::VertexBuffer::new(&display, &bezier_surface.get_grass_posistions(16)).unwrap();
+                    grass_instances = glium::VertexBuffer::new(&display, &bezier_surface.get_grass_posistions(grass_density)).unwrap();
                     surface_vbo = glium::VertexBuffer::new(&display, &bezier_surface.points).unwrap();
                 }else{
                     //let camera_ndc = world_to_pixel(camera.get_pos(), &camera.camera_matrix, window.inner_size(),&camera.perspective);
@@ -478,33 +504,58 @@ fn main() {
                     camera.camera_matrix = camera.look_at(camera.get_pos()+camera.get_front());
                     //inverse_mat = Mat4::inverse(&(Mat4::from_cols_array_2d(&camera.perspective)*camera.camera_matrix*Mat4::IDENTITY));
                 }else if event.physical_key == keyboard::KeyCode::KeyU && event.state.is_pressed(){
-                    cube_object.translate(Vec3::from_array([0.0,1.0,0.0]));
+                    world_objs[0].translate(Vec3::from_array([0.0,1.0,0.0]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyH && event.state.is_pressed(){
-                    cube_object.translate(Vec3::from_array([-1.0,0.0,0.0]));
+                    world_objs[0].translate(Vec3::from_array([-1.0,0.0,0.0]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyJ && event.state.is_pressed(){
-                    cube_object.translate(Vec3::from_array([0.0,-1.0,0.0]));
+                    world_objs[0].translate(Vec3::from_array([0.0,-1.0,0.0]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyK && event.state.is_pressed(){
-                    cube_object.translate(Vec3::from_array([1.0,0.0,0.0]));
+                    world_objs[0].translate(Vec3::from_array([1.0,0.0,0.0]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyY && event.state.is_pressed(){
-                    cube_object.scale(Vec3::from_array([2.0,2.0,2.0]));
+                    world_objs[0].scale(Vec3::from_array([2.0,2.0,2.0]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyI && event.state.is_pressed(){
-                    cube_object.scale(Vec3::from_array([0.5,0.5,0.5]));
+                    world_objs[0].scale(Vec3::from_array([0.5,0.5,0.5]));
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyO && event.state.is_pressed(){
-                    cube_object.rotate(Vec3::from_array([1.0,0.0,1.0]).normalize(), 2.0943951);
+                    world_objs[0].rotate(Vec3::from_array([1.0,0.0,1.0]).normalize(), 2.0943951);
                 }
                 else if event.physical_key == keyboard::KeyCode::KeyL && event.state.is_pressed(){
-                    cube_object.rotate(Vec3::from_array([1.0,1.0,0.0]).normalize(), 0.785398163);
+                    world_objs[0].rotate(Vec3::from_array([1.0,1.0,0.0]).normalize(), 0.785398163);
                 }else if event.state.is_pressed() && event.physical_key == keyboard::KeyCode::ControlLeft{
                     ctrl_pressed = true;
                 }else if !event.state.is_pressed() && event.physical_key == keyboard::KeyCode::ControlLeft{
                     ctrl_pressed = false;
                     selected_point = -1;
+                }else if event.physical_key == keyboard::KeyCode::ArrowRight && event.state.is_pressed(){
+                    bezier_quads += 1;
+                    println!("Quads in one dimension is: {}", bezier_quads);
+                    println!("Num quads is {}", bezier_quads*bezier_quads);
+                    bezier_surface = bezier_surface::Surface::new(Vec3::new(-1.0, 0.0, -1.0),2.0,2.0,bezier_quads,bezier_quads); 
+                    grass_instances = glium::VertexBuffer::new(&display, &bezier_surface.get_grass_posistions(grass_density)).unwrap();
+                    surface_vbo = glium::VertexBuffer::new(&display, &bezier_surface.points).unwrap();
+                    surface_indicies = glium::IndexBuffer::new(&display,PrimitiveType::Patches {vertices_per_patch: 16,},
+                        &bezier_surface.inds).unwrap();
+                }else if event.physical_key == keyboard::KeyCode::ArrowLeft && event.state.is_pressed(){
+                    bezier_quads -= 1;
+                    println!("Num quads is {}", bezier_quads*bezier_quads);
+                    bezier_surface = bezier_surface::Surface::new(Vec3::new(-1.0, 0.0, -1.0),2.0,2.0,bezier_quads,bezier_quads); 
+                    grass_instances = glium::VertexBuffer::new(&display, &bezier_surface.get_grass_posistions(grass_density)).unwrap();
+                    surface_vbo = glium::VertexBuffer::new(&display, &bezier_surface.points).unwrap();
+                    surface_indicies = glium::IndexBuffer::new(&display,PrimitiveType::Patches {vertices_per_patch: 16,},
+                        &bezier_surface.inds).unwrap();
+                }else if event.physical_key == keyboard::KeyCode::ArrowUp && event.state.is_pressed(){
+                    grass_density += 1;
+                    println!("Num grass is {}", bezier_quads*bezier_quads*grass_density*grass_density);
+                    grass_instances = glium::VertexBuffer::new(&display, &bezier_surface.get_grass_posistions(grass_density)).unwrap();
+                }else if event.physical_key == keyboard::KeyCode::ArrowDown && event.state.is_pressed(){
+                    grass_density -= 1;
+                    println!("Num grass is {}", bezier_quads*bezier_quads*grass_density*grass_density);
+                    grass_instances = glium::VertexBuffer::new(&display, &bezier_surface.get_grass_posistions(grass_density)).unwrap();
                 }
                 //Handle WASD
 
@@ -540,7 +591,7 @@ fn main() {
 
                     update_game_logic(dt, &mut camera, &mut world_camera, &input_handler, &mut mouse_pos, &mut point, &window);
                    
-                    update_obj_physics(dt, &mut bezier_surface, &mut cube_object);
+                    update_obj_physics(dt, &mut bezier_surface, &mut world_objs);
                     //println!("Update game: {} ms", time_update.elapsed().as_millis());
                     t += dt;
                     accumulator -= dt;
@@ -601,15 +652,17 @@ fn main() {
                     .. Default::default()
                 };
                 //println!("Have created buffers");
-                fbo.draw(&surface_vbo, &surface_renderer.indicies, &surface_renderer.program, &uniform! {object_color: [0.3 as f32,0.8 as f32,0.0 as f32], u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &surface_params).unwrap();
+                fbo.draw(&surface_vbo, &surface_indicies, &surface_renderer.program, &uniform! {object_color: [0.3 as f32,0.8 as f32,0.0 as f32], u_light: light, steps: 32.0 as f32, model: Mat4::IDENTITY.to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &surface_params).unwrap();
                 //println!("Have drawn surface");
                 fbo.draw((&grass_renderer.vbo, grass_instances.per_instance().unwrap()), &grass_renderer.indicies, &grass_renderer.program, &uniform! {u_light: light, threshhold: 0.5 as f32, strength: 0.08 as f32,u_time: t, tex: &grass_texture, u_light: light, model: (Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &grass_renderer.draw_params).unwrap();
                 //target.draw(&line_renderer.vbo, &line_renderer.indicies, &line_renderer.program, &uniform! {}, &line_renderer.draw_params).unwrap();
                 fbo.draw((&mult_point_renderer.vbo, surface_vbo.per_instance().unwrap()), &mult_point_renderer.indicies, &mult_point_renderer.program, &uniform! {selected: selected_point, model: (0.1*Mat4::IDENTITY).to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &mult_point_renderer.draw_params).unwrap();
                 //println!("Buffer is: {:#?}", &surface_renderer.vbo);
 
+                for obj in &world_objs{
+                    fbo.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: obj.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &obj_renderer.draw_params).unwrap();
 
-                fbo.draw(&obj_renderer.vbo, &obj_renderer.indicies, &obj_renderer.program, &uniform! { u_light: light, model: cube_object.get_model().to_cols_array_2d(), projection: camera.perspective.to_cols_array_2d(), view:camera.camera_matrix.to_cols_array_2d()}, &obj_renderer.draw_params).unwrap();
+                }
                 
                 target.draw(&low_res_renderer.vbo, &low_res_renderer.indicies,&low_res_renderer.program, &uniform! {tex: &world_texture}, &low_res_renderer.draw_params).unwrap();
 
@@ -645,39 +698,86 @@ fn main() {
     });
 }
 
-fn update_obj_physics(delta_time: f32, surface: &mut bezier_surface::Surface, obj:&mut WorldObject){
+fn update_obj_physics(delta_time: f32, surface: &mut bezier_surface::Surface, objs:&mut Vec<WorldObject>){
     const EPS: f32 = 0.001;
     const SPHERE_RADIUS: f32 = 0.25;
-    
-    // 1. Find closest point on surface using spatial search
-    let (surface_point, d_u, d_v) = surface.evaluate(obj.get_posistion()).unwrap_or((Vec3::ZERO,Vec3::ZERO,Vec3::ZERO));
-    // 2. Calculate actual 3D distance
-    let to_sphere = obj.get_posistion() - surface_point;
-    let distance = to_sphere.length();
-    let normal = d_u.cross(d_v).normalize();
-    
-    // 3. Check sphere collision
-    if distance < SPHERE_RADIUS + EPS {
-        let penetration_depth = SPHERE_RADIUS + EPS - distance;
-        obj.translate( normal * penetration_depth);
-        if -3.0 < penetration_depth {
-            obj.set_translation(obj.get_posistion().with_y(surface_point.y+SPHERE_RADIUS));
+    //println!("");
+    let mut distance_vec: Vec<Vec<usize>> = Vec::with_capacity(objs.len());
+    for i in 0..objs.len(){
+        distance_vec.push(vec![]);
+    }
+    for i in 0..objs.len(){
+        for j in i+1..objs.len(){
+            let dist = objs[i].get_posistion()-objs[j].get_posistion();
+            if dist.length() < SPHERE_RADIUS + SPHERE_RADIUS {
+                distance_vec[i].push(j);
+            }
         }
+    }
+    for i in 0..objs.len(){
         
-        
-        let velocity = obj.velocity;
-        let normal_speed = velocity.dot(normal);
-        
-        if normal_speed < 0.0 {
-            obj.velocity -= 1.5 * normal_speed * normal; // Bounce factor
+        //println!("\nObj is: {:?}", obj.get_posistion());
+        //Find closest point on surface
+        let pos: Vec3 = objs[i].get_posistion();
+
+        //Collision
+        for j in 0..distance_vec[i].len(){
+                    let col_index = distance_vec[i][j];
+            println!("obj {} is colliding with {}",i, col_index);
+            let dist = objs[i].get_posistion()-objs[col_index].get_posistion();
+            let distance = dist.length();
+            println!("distance is: {}", distance);
+            let collision_normal = dist.normalize();
+            //let collision_amount = (SPHERE_RADIUS + SPHERE_RADIUS) - distance;
+            objs[i].set_translation(pos-dist);
+            let pos_2 = objs[col_index].get_posistion();
+            objs[col_index].set_translation(pos_2+dist);
+            let relative_velocity = objs[col_index].velocity - objs[i].velocity;
+            let vel_at_normal = relative_velocity.dot(collision_normal);
+            if vel_at_normal > 0.0{
+                continue;
+            } 
+            let impulse_scale = -(1.0 + 0.0) * vel_at_normal;
+            let impulse = impulse_scale*collision_normal;
+            objs[i].velocity -= impulse;
+            objs[col_index].velocity += impulse;
         }
 
-        let tangent_velocity = velocity - normal * normal_speed;
-        obj.velocity -= 0.01 * tangent_velocity; 
-    }
+        let (surface_point, d_u, d_v) = surface.evaluate(pos).unwrap_or((Vec3::ZERO,Vec3::ZERO,Vec3::ZERO));
+        //println!("Surface point is: {}", surface_point);
+        // Calculate distance
+        let to_sphere = objs[i].get_posistion() - surface_point;
+        //println!("To sphere is: {}", to_sphere);
+        let distance = to_sphere.length();
+        let normal = -d_u.cross(d_v).normalize();
+        //println!("Distance is: {}", distance);
+        // 3. Check sphere collision
+        if distance < SPHERE_RADIUS + EPS {
+            let penetration_depth = SPHERE_RADIUS + EPS - distance;
+            objs[i].translate( normal * penetration_depth);
+            if -3.0 < penetration_depth {
+                objs[i].set_translation(pos.with_y(surface_point.y+SPHERE_RADIUS));
+            }
+            
+            
+            let velocity = objs[i].velocity;
+            let normal_speed = velocity.dot(normal);
+            
+            //Bounce
+            if normal_speed < 0.0 {
+                objs[i].velocity -= 1.5 * normal_speed * normal; // Bounce factor
+            }
     
-    obj.velocity += Vec3::new(0.0, -2.0, 0.0) * delta_time;
-    obj.translate(obj.velocity * delta_time);
+            //Friction
+            let tangent_velocity = velocity - normal * normal_speed;
+            objs[i].velocity -= 0.01 * tangent_velocity; 
+        }
+        
+        objs[i].velocity += Vec3::new(0.0, -2.0, 0.0) * delta_time;
+        let vel = objs[i].velocity;
+
+        objs[i].translate(vel * delta_time);
+    }
 }
 
 fn update_game_logic(delta_time: f32, camera: &mut RenderCamera,world_camera: &mut WorldCamera,input_handler: &InputHandler,mut mouse_pos:&mut Vec3, mouse_point: &mut WorldPoint, window: &Window){
