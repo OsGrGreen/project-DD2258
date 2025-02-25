@@ -1,4 +1,4 @@
-# Project thing DD2258
+# Project DD2258
 
 ## What I want to do:
 
@@ -8,3 +8,5 @@
     - Can modify spline points
 - A ton of grass
     - Instanced probably...
+
+- (IF time) PBR ????
